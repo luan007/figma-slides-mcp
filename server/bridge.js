@@ -4,13 +4,34 @@ export class Bridge {
   constructor(options = {}) {
     this.port = options.port !== undefined ? options.port : 3055;
     this._ws = null;
+    this._wss = null;
     this._editorType = null;
     this._documentName = null;
     this._pending = new Map();
     this._reqCounter = 0;
+    this._started = false;
+    this._startError = null;
+  }
 
-    this._wss = new WebSocketServer({ port: this.port });
-    this._wss.on('connection', (ws) => this._onConnection(ws));
+  _ensureStarted() {
+    if (this._started) return;
+    this._started = true;
+    try {
+      this._wss = new WebSocketServer({ port: this.port });
+      this._wss.on('connection', (ws) => this._onConnection(ws));
+      this._wss.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          this._startError = `Port ${this.port} already in use. Another instance may be running. Set FIGMA_WS_PORT env to use a different port.`;
+          console.error(`[bridge] ${this._startError}`);
+        } else {
+          console.error('[bridge] WebSocket server error:', err.message);
+        }
+      });
+      console.error(`[bridge] WebSocket server listening on ws://localhost:${this.port}`);
+    } catch (err) {
+      this._startError = err.message;
+      console.error('[bridge] Failed to start:', err.message);
+    }
   }
 
   _onConnection(ws) {
@@ -76,6 +97,12 @@ export class Bridge {
     return this._ws !== null && this._ws.readyState === 1;
   }
 
+  status() {
+    if (this._startError) return { connected: false, error: this._startError };
+    if (!this._started) return { connected: false, note: 'WebSocket server not yet started. Call any tool to initialize.' };
+    return { connected: this.isConnected(), editorType: this._editorType, documentName: this._documentName };
+  }
+
   editorType() {
     return this._editorType;
   }
@@ -85,13 +112,20 @@ export class Bridge {
   }
 
   address() {
-    return this._wss.address();
+    this._ensureStarted();
+    return this._wss ? this._wss.address() : null;
   }
 
   send(cmd, params = {}, options = {}) {
     return new Promise((resolve, reject) => {
+      this._ensureStarted();
+      if (this._startError) {
+        const err = new Error(this._startError);
+        err.code = 'NOT_CONNECTED';
+        return reject(err);
+      }
       if (!this.isConnected()) {
-        const err = new Error('Plugin not connected');
+        const err = new Error('Plugin not connected. Open Figma Slides and run the FigmaSlideMCP Bridge plugin.');
         err.code = 'NOT_CONNECTED';
         return reject(err);
       }
@@ -123,6 +157,6 @@ export class Bridge {
     }
     this._pending.clear();
     if (this._ws) this._ws.close();
-    this._wss.close();
+    if (this._wss) this._wss.close();
   }
 }

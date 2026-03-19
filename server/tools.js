@@ -12,14 +12,10 @@ export function registerTools(server, bridge) {
 
   server.registerTool('connection_status', {
     title: 'Connection Status',
-    description: 'Check if the Figma plugin is connected and get editor context',
+    description: 'Check if the Figma plugin is connected and get editor context. Also starts the WebSocket server if not yet running.',
     inputSchema: z.object({})
   }, async () => {
-    return toolResult({
-      connected: bridge.isConnected(),
-      editorType: bridge.editorType(),
-      documentName: bridge.documentName()
-    });
+    return toolResult(bridge.status());
   });
 
   server.registerTool('get_editor_info', {
