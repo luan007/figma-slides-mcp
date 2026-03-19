@@ -795,6 +795,60 @@ handlers.createNodeFromSvg = async function(params) {
   return { nodeId: node.id, type: node.type, name: node.name, width: node.width, height: node.height };
 };
 
+// --- HTML to Image ---
+handlers.renderHtml = async function(params) {
+  var parent = params.parentId ? await getNode(params.parentId) : figma.currentPage;
+  var width = params.width || 800;
+  var height = params.height || 600;
+  var requestId = 'html-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+  var bytesPromise = new Promise(function(resolve, reject) {
+    pendingImages.set(requestId, { resolve: resolve, reject: reject });
+    setTimeout(function() {
+      if (pendingImages.has(requestId)) {
+        pendingImages.delete(requestId);
+        reject({ code: 'TIMEOUT', message: 'HTML render timed out' });
+      }
+    }, 30000);
+  });
+  figma.ui.postMessage({ type: 'renderHtml', html: params.html, width: width, height: height, requestId: requestId });
+  var bytes = await bytesPromise;
+  var img = figma.createImage(bytes);
+  var rect = figma.createRectangle();
+  parent.appendChild(rect);
+  rect.resize(width, height);
+  if (params.x !== undefined) rect.x = params.x;
+  if (params.y !== undefined) rect.y = params.y;
+  rect.fills = [{ type: 'IMAGE', imageHash: img.hash, scaleMode: 'FILL' }];
+  return { nodeId: rect.id, width: width, height: height };
+};
+
+// --- Run Script in iframe (for D3, generative SVG, etc.) ---
+handlers.runScript = async function(params) {
+  var requestId = 'script-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+  var resultPromise = new Promise(function(resolve, reject) {
+    pendingImages.set(requestId, { resolve: resolve, reject: reject });
+    setTimeout(function() {
+      if (pendingImages.has(requestId)) {
+        pendingImages.delete(requestId);
+        reject({ code: 'TIMEOUT', message: 'Script execution timed out' });
+      }
+    }, 30000);
+  });
+  figma.ui.postMessage({ type: 'runScript', script: params.script, requestId: requestId });
+  var result = await resultPromise;
+  // If result is SVG string, optionally create node from it
+  if (params.asSvg && typeof result === 'string') {
+    var parent = params.parentId ? await getNode(params.parentId) : figma.currentPage;
+    var node = figma.createNodeFromSvg(result);
+    parent.appendChild(node);
+    if (params.x !== undefined) node.x = params.x;
+    if (params.y !== undefined) node.y = params.y;
+    if (params.width && params.height) node.resize(params.width, params.height);
+    return { nodeId: node.id, type: node.type, svg: result.substring(0, 200) + '...' };
+  }
+  return { result: result };
+};
+
 handlers.getInteractiveElements = async function(params) {
   var slide = await getNode(params.slideId);
   var elements = [];
@@ -912,6 +966,22 @@ figma.ui.onmessage = async function(msg) {
     if (pendingErr) {
       pendingImages.delete(msg.requestId);
       pendingErr.reject({ code: 'INVALID_PARAMS', message: msg.error });
+    }
+    return;
+  }
+  if (msg.type === 'scriptResult') {
+    var pendingScript = pendingImages.get(msg.requestId);
+    if (pendingScript) {
+      pendingImages.delete(msg.requestId);
+      pendingScript.resolve(msg.result);
+    }
+    return;
+  }
+  if (msg.type === 'scriptError') {
+    var pendingScriptErr = pendingImages.get(msg.requestId);
+    if (pendingScriptErr) {
+      pendingImages.delete(msg.requestId);
+      pendingScriptErr.reject({ code: 'SCRIPT_ERROR', message: msg.error });
     }
     return;
   }
