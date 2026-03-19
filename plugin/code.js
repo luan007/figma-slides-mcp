@@ -120,6 +120,27 @@ handlers.probeFigmaAPI = async function(params) {
       return { success: false, error: e.message || String(e) };
     }
   }
+  if (params.probe === 'svgMethods') {
+    var methods = [];
+    var candidates = ['createNodeFromSvg', 'createFromSvg', 'createSvg', 'createVector', 'createVectorPath', 'createNodeFromJSXAsync'];
+    for (var m = 0; m < candidates.length; m++) {
+      methods.push({ name: candidates[m], type: typeof figma[candidates[m]] });
+    }
+    // Also check if createVector has useful methods
+    try {
+      var vec = figma.createVector();
+      var vecProps = ['vectorNetwork', 'vectorPaths', 'strokeGeometry', 'fillGeometry'];
+      var vecInfo = {};
+      for (var v = 0; v < vecProps.length; v++) {
+        vecInfo[vecProps[v]] = typeof vec[vecProps[v]];
+      }
+      vec.remove();
+      methods.push({ name: 'vectorNode_props', info: vecInfo });
+    } catch(e) {
+      methods.push({ name: 'vectorNode_error', error: e.message });
+    }
+    return { methods: methods };
+  }
   if (params.probe === 'createVideo') {
     try {
       // Try with a minimal valid mp4 header
@@ -761,6 +782,17 @@ handlers.replaceMedia = async function(params) {
     throw { code: 'INVALID_PARAMS', message: 'replaceMedia failed: ' + (e.message || e) };
   }
   return {};
+};
+
+// --- SVG Import ---
+handlers.createNodeFromSvg = async function(params) {
+  var parent = params.parentId ? await getNode(params.parentId) : figma.currentPage;
+  var node = figma.createNodeFromSvg(params.svg);
+  parent.appendChild(node);
+  if (params.x !== undefined) node.x = params.x;
+  if (params.y !== undefined) node.y = params.y;
+  if (params.width && params.height) node.resize(params.width, params.height);
+  return { nodeId: node.id, type: node.type, name: node.name, width: node.width, height: node.height };
 };
 
 handlers.getInteractiveElements = async function(params) {
