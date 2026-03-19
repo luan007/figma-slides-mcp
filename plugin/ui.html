@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { margin: 0; padding: 4px 8px; font-family: system-ui; font-size: 11px; }
+    #status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .connected { background: #1bc47d; }
+    .connecting { background: #f5a623; }
+    .disconnected { background: #f24822; }
+  </style>
+</head>
+<body>
+  <span id="status" class="disconnected"></span>
+  <span id="label">Disconnected</span>
+  <script>
+    const PORT = 3055;
+    const MAX_BACKOFF = 30000;
+    let ws = null;
+    let backoff = 1000;
+    let connected = false;
+
+    const statusEl = document.getElementById('status');
+    const labelEl = document.getElementById('label');
+
+    function setStatus(state, text) {
+      statusEl.className = state;
+      labelEl.textContent = text;
+    }
+
+    function connect() {
+      setStatus('connecting', 'Connecting...');
+      try {
+        ws = new WebSocket('ws://localhost:' + PORT);
+      } catch (e) {
+        setStatus('disconnected', 'Failed to create WebSocket');
+        scheduleReconnect();
+        return;
+      }
+
+      ws.onopen = () => {
+        connected = true;
+        backoff = 1000;
+        setStatus('connected', 'Connected');
+        // Request editor info from main thread to complete handshake
+        parent.postMessage({ pluginMessage: { type: 'getEditorInfo' } }, '*');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          // Forward command from server to plugin main thread
+          parent.postMessage({ pluginMessage: { type: 'command', ...msg } }, '*');
+        } catch (e) {
+          console.error('Failed to parse message:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        connected = false;
+        setStatus('disconnected', 'Disconnected. Retrying in ' + (backoff / 1000) + 's...');
+        scheduleReconnect();
+      };
+
+      ws.onerror = (err) => {
+        console.error('WebSocket error:', err);
+        ws.close();
+      };
+    }
+
+    function scheduleReconnect() {
+      setTimeout(() => {
+        backoff = Math.min(backoff * 2, MAX_BACKOFF);
+        connect();
+      }, backoff);
+    }
+
+    // Handle messages from plugin main thread
+    onmessage = (event) => {
+      const msg = event.data.pluginMessage;
+      if (!msg) return;
+
+      if (msg.type === 'response' || msg.type === 'hello') {
+        // Forward response/hello from plugin to server
+        if (ws && connected) {
+          ws.send(JSON.stringify(msg.data));
+        }
+      } else if (msg.type === 'fetchImage') {
+        // Image relay: fetch URL in iframe, send bytes back to main thread
+        fetch(msg.url)
+          .then(function(res) { return res.arrayBuffer(); })
+          .then(function(buf) {
+            parent.postMessage({
+              pluginMessage: {
+                type: 'imageData',
+                requestId: msg.requestId,
+                bytes: new Uint8Array(buf)
+              }
+            }, '*');
+          })
+          .catch(function(err) {
+            parent.postMessage({
+              pluginMessage: {
+                type: 'imageError',
+                requestId: msg.requestId,
+                error: err.message
+              }
+            }, '*');
+          });
+      }
+    };
+
+    connect();
+  </script>
+</body>
+</html>

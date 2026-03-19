@@ -1,0 +1,13 @@
+{
+  "name": "FigmaSlideMCP Bridge",
+  "id": "figma-slide-mcp-bridge",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma", "slides"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["*"],
+    "reasoning": "WebSocket connection to local MCP server"
+  }
+}
