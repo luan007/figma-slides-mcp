@@ -24,6 +24,32 @@
   <script src="https://unpkg.com/frappe-charts@2.0.0/dist/frappe-charts.umd.min.js"></script>
   <!-- html-to-image — DOM snapshot to SVG -->
   <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11/dist/html-to-image.js"></script>
+  <!-- Satori — HTML/CSS to SVG with real layout engine (Vercel) -->
+  <script src="https://cdn.jsdelivr.net/npm/satori@0.12.1/dist/satori.js"></script>
+  <script>
+    // Pre-init Satori with yoga WASM
+    var satoriReady = false;
+    var satoriModule = null;
+    (async function() {
+      try {
+        if (typeof satori_default !== 'undefined' || typeof satori !== 'undefined') {
+          // Try to init yoga WASM
+          var yogaUrl = 'https://cdn.jsdelivr.net/npm/satori@0.12.1/yoga.wasm';
+          var res = await fetch(yogaUrl);
+          var wasm = await res.arrayBuffer();
+          var mod = typeof satori_default !== 'undefined' ? satori_default : satori;
+          if (mod && mod.init) {
+            await mod.init(wasm);
+            satoriModule = mod;
+            satoriReady = true;
+            console.log('Satori initialized');
+          }
+        }
+      } catch(e) {
+        console.error('Satori init failed:', e);
+      }
+    })();
+  </script>
   <script>
     const PORT = 3055;
     const MAX_BACKOFF = 30000;
@@ -97,63 +123,90 @@
           ws.send(JSON.stringify(msg.data));
         }
       } else if (msg.type === 'renderHtml') {
-        // Render HTML to PNG via offscreen canvas + foreignObject SVG
+        // Render HTML to PNG using html-to-image (real DOM rendering)
         var width = msg.width || 800;
         var height = msg.height || 600;
-        var svgData = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '">' +
-          '<foreignObject width="100%" height="100%">' +
-          '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + width + 'px;height:' + height + 'px;overflow:hidden;">' +
-          msg.html +
-          '</div></foreignObject></svg>';
-        var img = new Image();
-        var svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-        var url = URL.createObjectURL(svgBlob);
-        img.onload = function() {
-          var canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
-          var ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0);
-          URL.revokeObjectURL(url);
-          canvas.toBlob(function(blob) {
-            blob.arrayBuffer().then(function(buf) {
-              parent.postMessage({
-                pluginMessage: {
-                  type: 'imageData',
-                  requestId: msg.requestId,
-                  bytes: new Uint8Array(buf)
-                }
-              }, '*');
-            });
-          }, 'image/png');
-        };
-        img.onerror = function() {
-          URL.revokeObjectURL(url);
+        var container = document.getElementById('scratch');
+        container.style.cssText = 'position:absolute;left:0;top:0;width:' + width + 'px;height:' + height + 'px;overflow:hidden;';
+        container.innerHTML = msg.html;
+        // Use html-to-image if available, fallback to foreignObject
+        var capturePromise;
+        if (typeof htmlToImage !== 'undefined' && htmlToImage.toPng) {
+          capturePromise = htmlToImage.toPng(container, { width: width, height: height, pixelRatio: 2 });
+        } else {
+          // foreignObject fallback
+          var svgData = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '">' +
+            '<foreignObject width="100%" height="100%">' +
+            '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + width + 'px;height:' + height + 'px;overflow:hidden;">' +
+            msg.html + '</div></foreignObject></svg>';
+          var svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+          capturePromise = new Promise(function(resolve, reject) {
+            var url = URL.createObjectURL(svgBlob);
+            var img = new Image();
+            img.onload = function() {
+              var canvas = document.createElement('canvas');
+              canvas.width = width * 2; canvas.height = height * 2;
+              var ctx = canvas.getContext('2d');
+              ctx.scale(2, 2);
+              ctx.drawImage(img, 0, 0);
+              URL.revokeObjectURL(url);
+              resolve(canvas.toDataURL('image/png'));
+            };
+            img.onerror = function() { URL.revokeObjectURL(url); reject(new Error('render failed')); };
+            img.src = url;
+          });
+        }
+        capturePromise.then(function(dataUrl) {
+          container.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
+          container.innerHTML = '';
+          // Convert data URL to bytes
+          var base64 = dataUrl.split(',')[1];
+          var binary = atob(base64);
+          var bytes = new Uint8Array(binary.length);
+          for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
           parent.postMessage({
-            pluginMessage: {
-              type: 'imageError',
-              requestId: msg.requestId,
-              error: 'Failed to render HTML to image'
-            }
+            pluginMessage: { type: 'imageData', requestId: msg.requestId, bytes: bytes }
           }, '*');
-        };
-        img.src = url;
+        }).catch(function(e) {
+          container.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
+          container.innerHTML = '';
+          parent.postMessage({
+            pluginMessage: { type: 'imageError', requestId: msg.requestId, error: e.message }
+          }, '*');
+        });
       } else if (msg.type === 'runScript') {
         // Run JS script in iframe with full graphics toolkit
-        // Available: d3, SVG (svg.js), rough, frappe, htmlToImage, scratch div
+        // Available: d3, SVG (svg.js), rough, frappe, htmlToImage, satori, scratch div
         // Script should return SVG string, or render into scratch div
+        // For async scripts (satori), return a Promise
         var scratch = document.getElementById('scratch');
         scratch.innerHTML = '';
         try {
-          var fn = new Function('d3', 'SVG', 'rough', 'frappe', 'htmlToImage', 'scratch', msg.script);
+          var fn = new Function('d3', 'SVG', 'rough', 'frappe', 'htmlToImage', 'satori', 'scratch', msg.script);
           var result = fn(
             typeof d3 !== 'undefined' ? d3 : null,
             typeof SVG !== 'undefined' ? SVG : null,
             typeof rough !== 'undefined' ? rough : null,
             typeof frappe !== 'undefined' ? frappe : null,
             typeof htmlToImage !== 'undefined' ? htmlToImage : null,
+            satoriReady ? satoriModule : null,
             scratch
           );
+          // Handle async scripts (return Promise)
+          if (result && typeof result.then === 'function') {
+            result.then(function(asyncResult) {
+              if (!asyncResult || typeof asyncResult !== 'string') {
+                var svgEl = scratch.querySelector('svg');
+                if (svgEl) asyncResult = new XMLSerializer().serializeToString(svgEl);
+              }
+              scratch.innerHTML = '';
+              parent.postMessage({ pluginMessage: { type: 'scriptResult', requestId: msg.requestId, result: asyncResult } }, '*');
+            }).catch(function(e) {
+              scratch.innerHTML = '';
+              parent.postMessage({ pluginMessage: { type: 'scriptError', requestId: msg.requestId, error: e.message } }, '*');
+            });
+            return;
+          }
           // If result is not a string, try to extract SVG from scratch div
           if (!result || typeof result !== 'string') {
             var svgEl = scratch.querySelector('svg');
