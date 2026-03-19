@@ -289,19 +289,27 @@ handlers.getTextContent = async function(params) {
   };
 };
 
-handlers.listFonts = async function() {
+handlers.listFonts = async function(params) {
   var fonts = await figma.listAvailableFontsAsync();
   var families = {};
+  var query = params.query ? params.query.toLowerCase() : null;
   for (var i = 0; i < fonts.length; i++) {
     var family = fonts[i].fontName.family;
+    // Filter by query if provided
+    if (query && family.toLowerCase().indexOf(query) === -1) continue;
     if (!families[family]) families[family] = [];
     families[family].push(fonts[i].fontName.style);
   }
   var result = [];
+  var limit = params.limit || (query ? 500 : 50);
+  var count = 0;
   for (var fam in families) {
+    if (count >= limit) break;
     result.push({ family: fam, styles: families[fam] });
+    count++;
   }
-  return { fonts: result };
+  var totalFamilies = Object.keys(families).length;
+  return { fonts: result, total: totalFamilies, showing: result.length, query: query || 'none (showing first ' + limit + ')' };
 };
 
 // --- Images ---

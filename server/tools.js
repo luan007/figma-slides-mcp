@@ -225,10 +225,13 @@ export function registerTools(server, bridge) {
 
   server.registerTool('list_fonts', {
     title: 'List Fonts',
-    description: 'List all available fonts in the Figma editor',
-    inputSchema: z.object({})
-  }, async () => {
-    const result = await bridge.send('listFonts');
+    description: 'Search available fonts. Use query to filter by family name. Without query, returns first 50 families.',
+    inputSchema: z.object({
+      query: z.string().optional().describe('Search by family name (substring match). E.g. "Inter", "Nexa", "Roboto"'),
+      limit: z.number().optional().describe('Max families to return. Default: 50 (no query) or 500 (with query)')
+    })
+  }, async (params) => {
+    const result = await bridge.send('listFonts', params || {});
     return toolResult(result);
   });
 
