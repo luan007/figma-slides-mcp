@@ -10,9 +10,30 @@ export function registerTools(server, bridge) {
   // Tier 1: High-Level
   // ============================
 
+  server.registerTool('start_session', {
+    title: 'Start Figma Slides Session',
+    description: 'Start the WebSocket server and wait for the Figma plugin to connect. Call this when the user says "start figma session", "connect to figma", or "open slides". Returns connection status and instructions if not yet connected.',
+    inputSchema: z.object({})
+  }, async () => {
+    const status = bridge.start();
+    if (status.error) {
+      return toolResult({
+        ...status,
+        hint: 'Another instance may be using the port. Set FIGMA_WS_PORT env to a different port, or close the other instance.'
+      });
+    }
+    if (!status.connected) {
+      return toolResult({
+        ...status,
+        hint: 'WebSocket server is running. Now open Figma Slides and run the FigmaSlideMCP Bridge plugin (Plugins > Development > FigmaSlideMCP Bridge).'
+      });
+    }
+    return toolResult(status);
+  });
+
   server.registerTool('connection_status', {
     title: 'Connection Status',
-    description: 'Check if the Figma plugin is connected and get editor context. Also starts the WebSocket server if not yet running.',
+    description: 'Check if the Figma plugin is connected. Does NOT start the server — use start_session first.',
     inputSchema: z.object({})
   }, async () => {
     return toolResult(bridge.status());

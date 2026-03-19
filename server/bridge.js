@@ -97,10 +97,15 @@ export class Bridge {
     return this._ws !== null && this._ws.readyState === 1;
   }
 
+  start() {
+    this._ensureStarted();
+    return this.status();
+  }
+
   status() {
-    if (this._startError) return { connected: false, error: this._startError };
-    if (!this._started) return { connected: false, note: 'WebSocket server not yet started. Call any tool to initialize.' };
-    return { connected: this.isConnected(), editorType: this._editorType, documentName: this._documentName };
+    if (this._startError) return { started: false, connected: false, error: this._startError };
+    if (!this._started) return { started: false, connected: false, note: 'WebSocket server not yet started. Use start_session to initialize.' };
+    return { started: true, connected: this.isConnected(), port: this.port, editorType: this._editorType, documentName: this._documentName };
   }
 
   editorType() {
