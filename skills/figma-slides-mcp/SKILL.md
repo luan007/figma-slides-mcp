@@ -15,40 +15,55 @@ Technique for using the figma-slides MCP to build presentation slides programmat
 - Editing existing Figma Slides content programmatically
 - Building slide decks with data visualizations, charts, or complex graphics
 
-## The Golden Rule
+## The Golden Rule: Look, Then Act, Then Look Again
+
+The agent has no eyes by default. **You must actively look** at every stage:
 
 ```
-CREATE BLOCK → SCREENSHOT → VERIFY → FIX → NEXT BLOCK
+UNDERSTAND → CREATE → SCREENSHOT → ASSESS → REFINE → SCREENSHOT → DONE
 ```
 
-Never create more than one logical block (a card, a text group, a section) without screenshotting to verify positioning, sizing, and styling. Guessing coordinates accumulates errors.
+This is not optional. Every slide goes through this loop. You will get coordinates wrong, text will overlap, sizing will be off — that's expected. The discipline is catching and fixing it immediately, not after 5 slides.
 
 ## Workflow
 
 ```dot
 digraph slide_workflow {
-  "Plan slide layout" -> "Check connection";
-  "Check connection" -> "Create slide + background";
-  "Create slide + background" -> "Screenshot to verify";
-  "Screenshot to verify" -> "Create next block";
-  "Create next block" -> "Screenshot to verify" [label="verify each block"];
-  "Screenshot to verify" -> "Fix overlaps/clipping" [label="issues found"];
-  "Fix overlaps/clipping" -> "Screenshot to verify";
+  "Understand context" -> "Read existing slides";
+  "Read existing slides" -> "Plan layout";
+  "Plan layout" -> "Create block";
+  "Create block" -> "Screenshot";
+  "Screenshot" -> "Good?" [label="always look"];
+  "Good?" -> "Create next block" [label="yes"];
+  "Good?" -> "Fix issues" [label="no"];
+  "Fix issues" -> "Screenshot" [label="verify fix"];
+  "Create next block" -> "Screenshot" [label="verify each block"];
 }
 ```
 
 ## Before You Start
 
-### 1. Check connection and fonts
+### 1. Understand what's already there
 
 ```
 connection_status → confirms plugin connected + editor type
 get_slide_grid → understand existing deck structure
-get_slide_context → read an existing slide to learn the deck's style
-list_fonts(query: "Inter") → check exact font names
+get_slide_context(slideId) → read an existing slide's content, fonts, colors, spacing
+screenshot_slide(slideId) → SEE what the existing slides look like
+list_fonts(query: "Inter") → check exact font names available
 ```
 
-Always inspect an existing slide first. Extract: font family, font sizes for headings/body, color palette, spacing patterns.
+**Always inspect existing slides first.** Use `get_slide_context` on 2-3 slides to learn: font family, font sizes for headings/body, color palette, spacing patterns. Use `screenshot_slide` to actually see the visual style. Match what's there — don't impose a new design language on an existing deck.
+
+### 2. After creating anything — screenshot immediately
+
+Don't create 3 slides then look. Create one element group, screenshot, verify, fix. The visual feedback loop is your primary debugging tool:
+
+- **After creating a slide**: screenshot to confirm background color
+- **After adding a text group**: screenshot to check sizing, position, clipping
+- **After adding a card/panel**: screenshot to verify borders render, content fits
+- **After a batch operation**: screenshot to catch overlaps, misalignment
+- **After any fix**: screenshot to confirm the fix worked
 
 ### 2. Plan coordinates on paper
 
