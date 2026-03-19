@@ -1,6 +1,6 @@
 ---
 name: figma-slides-mcp
-description: Use when creating or editing Figma Slides via the figma-slides MCP server. Covers the verify-after-every-block workflow, batch sizing, text handling, coordinate planning, and visual design patterns for dark-themed slide decks.
+description: Use when creating or editing Figma Slides via the figma-slides MCP server. Covers the verify-after-every-block workflow, batch sizing, text handling, coordinate planning, graphics renderers (D3, Satori, Rough.js), and visual design patterns.
 ---
 
 # Figma Slides MCP
@@ -13,7 +13,7 @@ Technique for using the figma-slides MCP to build presentation slides programmat
 
 - Creating slides via `mcp__figma-slides__*` tools
 - Editing existing Figma Slides content programmatically
-- Building slide decks for presentations with the MCP bridge
+- Building slide decks with data visualizations, charts, or complex graphics
 
 ## The Golden Rule
 
@@ -45,6 +45,7 @@ digraph slide_workflow {
 connection_status → confirms plugin connected + editor type
 get_slide_grid → understand existing deck structure
 get_slide_context → read an existing slide to learn the deck's style
+list_fonts(query: "Inter") → check exact font names
 ```
 
 Always inspect an existing slide first. Extract: font family, font sizes for headings/body, color palette, spacing patterns.
@@ -64,17 +65,106 @@ Slides are fixed **1920 x 1080**. Plan your layout grid before placing anything:
 
 Horizontal thirds: `x=51`, `x=660`, `x=1270` with ~570px card width each.
 
+## Graphics Renderers — Choosing the Right One
+
+```dot
+digraph renderer_choice {
+  "What are you creating?" [shape=diamond];
+  "Data viz / chart?" [shape=diamond];
+  "Sketchy / hand-drawn?" [shape=diamond];
+  "Complex CSS layout?" [shape=diamond];
+  "render_d3" [shape=box, style=filled, fillcolor="#4ECDC4"];
+  "render_rough" [shape=box, style=filled, fillcolor="#FFE66D"];
+  "render_satori" [shape=box, style=filled, fillcolor="#C084FC"];
+  "create_svg or create_node" [shape=box, style=filled, fillcolor="#888888"];
+
+  "What are you creating?" -> "Data viz / chart?" [label="graphics"];
+  "Data viz / chart?" -> "render_d3" [label="yes"];
+  "Data viz / chart?" -> "Sketchy / hand-drawn?" [label="no"];
+  "Sketchy / hand-drawn?" -> "render_rough" [label="yes"];
+  "Sketchy / hand-drawn?" -> "Complex CSS layout?" [label="no"];
+  "Complex CSS layout?" -> "render_satori" [label="yes"];
+  "Complex CSS layout?" -> "create_svg or create_node" [label="simple shapes"];
+}
+```
+
+### render_d3 — PREFERRED for data graphics
+
+Use for: bar charts, pie/donut charts, line charts, treemaps, force graphs, any D3 visualization.
+
+- Full D3 v7 available in iframe
+- Script has access to `d3` and `scratch` (offscreen div)
+- Text renders as **editable Figma text nodes**
+- Return SVG string or render into scratch (auto-extracted)
+
+```js
+// Example: build SVG with d3, auto-extracted from scratch
+var svg = d3.select(scratch).append('svg').attr('width', 800).attr('height', 400);
+svg.append('rect').attr('width', 800).attr('height', 400).attr('fill', '#111');
+// ... d3 bindings, scales, axes ...
+```
+
+### render_rough — hand-drawn / sketchy style
+
+Use for: informal diagrams, whiteboard-style visuals, creative presentations.
+
+- Rough.js available via `rough`
+- Fill styles: hachure, cross-hatch, zigzag, dots, solid
+- Create SVG element manually, use `rough.svg(svgEl)` to draw
+- Text as editable nodes
+
+### render_satori — HTML/CSS layouts
+
+Use ONLY when flexbox/CSS layout is essential and hard to express in SVG. Last resort.
+
+**Limitations:**
+- **Text becomes vector PATHS — not editable in Figma.** Users cannot change text after rendering.
+- No CSS gradients (use solid colors)
+- No rgba() colors (use hex)
+- Must fetch a font file first (adds ~1s latency)
+- Uses JSX-object syntax, not HTML strings: `{ type: 'div', props: { style: {...}, children: [...] } }`
+
+```js
+// Must fetch font first
+var fontUrl = 'https://cdn.jsdelivr.net/fontsource/fonts/inter@latest/latin-400-normal.woff';
+return fetch(fontUrl).then(r => r.arrayBuffer()).then(fontData => {
+  return satori(element, { width: 1920, height: 1080, fonts: [{ name: 'Inter', data: fontData, weight: 400, style: 'normal' }] });
+});
+```
+
+### create_svg — inline SVG strings
+
+Use for: simple graphics, icons, logos where you can write SVG directly.
+
+- Agent generates SVG string
+- No iframe execution needed
+- Full SVG spec support except foreignObject (stripped by Figma)
+
+### Summary
+
+| Renderer | Text editable? | Best for | Latency |
+|----------|---------------|----------|---------|
+| **render_d3** | Yes | Charts, data viz, diagrams | Fast |
+| **render_rough** | Yes | Sketchy/hand-drawn | Fast |
+| **render_satori** | **No (paths)** | CSS layouts, UI cards | Slow (font fetch) |
+| **create_svg** | Depends | Icons, simple graphics | Instant |
+| **create_node** | Yes (setText) | Basic shapes + text | Instant |
+
+**Default to render_d3.** Only use render_satori when you genuinely need flexbox layout that D3 can't express.
+
 ## Batch Operations
 
 ### Keep batches small (8-12 commands max)
 
-Large batches (20+) risk timeout (30s limit). Split into logical groups:
+Large batches (20+) risk timeout (30s limit). The bottleneck is async operations (setText with font loading), not raw command count. 20 pure shape commands work fine; 20 setText commands may timeout.
+
+Split into logical groups:
 
 ```
 Batch 1: Create card background + label + title (5 commands)
 → Screenshot → Verify
 
-Batch 2: Add price + timeline + deliverables (6 commands)
+Batch 2: Add details + deliverables (6 commands)
 → Screenshot → Verify
 ```
 
@@ -102,7 +192,7 @@ batch_operations: [
 
 Wrong: `"Inter Semi Bold"` — Right: `"Inter SemiBold"`
 
-Always check available fonts first via an existing slide's `get_slide_context` or `list_fonts`. Common Figma font format: `"Family Style"` e.g. `"Nexa Bold Regular"`, `"Inter Bold"`.
+Use `list_fonts(query: "Inter")` to check exact names. Common format: `"Family Style"` e.g. `"Inter Bold"`, `"Roboto Regular"`.
 
 ### setText then setTextRangeStyle (two-step)
 
@@ -110,7 +200,7 @@ Always check available fonts first via an existing slide's `get_slide_context` o
 2. `setText` — sets characters and font (auto-loads font)
 3. `setTextRangeStyle` — sets fontSize, fills, etc.
 
-**Critical:** The `end` index in `setTextRangeStyle` must equal the actual character count. Get it from `getTextContent` if unsure. Off-by-one causes hard errors.
+**Critical:** The `end` index in `setTextRangeStyle` must equal the actual character count. **Always call `getTextContent` first** to get the real length. Off-by-one causes hard errors. Chinese characters may have different lengths than expected.
 
 ### Text width matters
 
@@ -130,51 +220,51 @@ All-white text on black backgrounds with no structure looks like a markdown rend
 
 **Dark cards:** Use `RECTANGLE` with `fills: "#0a0a0a"`, `cornerRadius: 8`, `strokes: "#222222"`, `strokeWeight: 1` to create panel regions.
 
-**Accent color:** Pick one accent (e.g. `#4ECDC4` teal) for labels, numbers, subtitles. Use it sparingly — only on category markers and secondary text.
+**Accent color:** Pick one accent for labels, numbers, subtitles. Use it sparingly — only on category markers and secondary text.
 
-**Color hierarchy:**
+**Color hierarchy (dark theme example):**
 | Role | Color |
 |------|-------|
 | Primary heading | `#ffffff` |
-| Accent / label | `#4ECDC4` (or deck's accent) |
+| Accent / label | one accent color |
 | Secondary text | `#888888` |
 | Body / description | `#555555` |
 | Muted / fine print | `#333333` |
 | Card border | `#222222` |
-| Card fill | `#0a0a0a` |
+| Card fill | `#0a0a0a` or `#111111` |
 | Slide background | `#000000` |
-
-**Think Palantir/IBM** — structured data cards, defined regions, subtle borders, typography-driven hierarchy.
 
 ### Element ordering matters
 
 Figma renders in child order (later = on top). Create background rectangles BEFORE text that sits on them.
 
-## Slide Structure Template
+## API Limitations (Figma Slides)
 
-A well-structured slide typically has:
-
-```
-1. Page label       (top-left, small, muted)
-2. Main title       (large, bold, white)
-3. Horizontal line  (subtle divider)
-4. Content cards    (dark panels with structured content inside)
-5. Footer tagline   (muted, bottom area)
-6. Brand mark       (bottom-left, small, bold, white)
-```
+| Feature | Status |
+|---------|--------|
+| createSlide, createSlideRow | Works |
+| createRectangle, createEllipse, createLine, createText | Works |
+| createNodeFromSvg | Works — the graphics powerhouse |
+| createTable, createShapeWithText | **Unavailable** in Slides editor |
+| createVideoAsync | **Broken** — returns empty `{}` |
+| createComponent, createPage | **Unavailable** in Slides editor |
+| list_fonts (no query) | Returns 2000+ families → **always use query param** |
+| foreignObject in SVG | **Stripped** by Figma's SVG parser |
 
 ## Common Mistakes
 
 | Mistake | Fix |
 |---------|-----|
-| Batch too large → timeout | Keep under 12 commands per batch |
-| Text overlapping | Screenshot after each text group, check Y positions |
-| setTextRangeStyle wrong end | Use getTextContent to get actual length first |
-| Font not found error | Check exact font name from existing slide context |
+| Batch too large → timeout | Keep under 12 commands, split text-heavy batches |
+| Text overlapping | Screenshot after each text group, verify Y positions |
+| setTextRangeStyle wrong end | **Always** getTextContent first for actual length |
+| Font not found error | Use list_fonts(query) to check exact name |
 | Elements behind cards | Create rectangles before text in batch order |
-| Text clipped at edge | Set width prop on text nodes, leave margin from card edges |
+| Text clipped at edge | Set width prop on text nodes |
 | No visual hierarchy | Use cards, accent colors, varied font sizes |
-| All text same color | Apply the color hierarchy table above |
+| Satori text not editable | Expected — use render_d3 instead when text editing matters |
+| list_fonts overflow | Always pass query param to filter |
+| Slide background not set | set_properties on slide node with fills |
 
 ## Quick Reference: Common Commands
 
@@ -186,8 +276,14 @@ A well-structured slide typically has:
 | Add shape | `create_node` | `type, parentId, props` |
 | Set text | `set_text` | `nodeId, text, fontName` |
 | Style range | `set_text_range_style` | `nodeId, start, end, props` |
-| Dark card | `create_node` | `type: "RECTANGLE"` with fills/strokes/cornerRadius |
-| Divider line | `create_node` | `type: "LINE"` then set strokes/opacity |
+| Dark card | `create_node` | `type: RECTANGLE` with fills/strokes/cornerRadius |
+| Divider line | `create_node` | `type: LINE` then set strokes/opacity |
+| Place image | `place_image` | `parentId, url, x, y, width, height` |
+| D3 chart | `render_d3` | `parentId, script, x, y, width, height` |
+| Rough sketch | `render_rough` | `parentId, script, x, y, width, height` |
+| CSS layout | `render_satori` | `parentId, script, x, y, width, height` |
+| SVG import | `create_svg` | `parentId, svg, x, y, width, height` |
 | Multi-command | `batch_operations` | `commands[]` with `$N.field` refs |
 | Wipe slide | `clear_slide` | `slideId` |
-| Check text length | `get_text_content` | `nodeId` → read segments |
+| Check text | `get_text_content` | `nodeId` → read segments for length |
+| Search fonts | `list_fonts` | `query: "Inter"` |
