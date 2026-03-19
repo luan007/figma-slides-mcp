@@ -629,4 +629,100 @@ export function registerTools(server, bridge) {
     const result = await bridge.send('batch', { commands }, { timeout: 30000 });
     return toolResult(result);
   });
+
+  // ============================
+  // Tier 5: Graphics Renderers
+  // ============================
+
+  server.registerTool('create_svg', {
+    title: 'Create SVG',
+    description: 'Import an SVG string as editable Figma vector nodes. Use for icons, logos, simple graphics. The agent generates the SVG string directly.',
+    inputSchema: z.object({
+      parentId: z.string().describe('Parent node (typically slide ID)'),
+      svg: z.string().describe('Complete SVG string with xmlns attribute'),
+      x: z.number().optional(), y: z.number().optional(),
+      width: z.number().optional(), height: z.number().optional()
+    })
+  }, async (params) => {
+    const result = await bridge.send('createNodeFromSvg', params);
+    return toolResult(result);
+  });
+
+  server.registerTool('render_d3', {
+    title: 'Render D3 Visualization',
+    description: `Render a D3.js visualization as editable Figma vector nodes. PREFERRED for data visualizations, charts, graphs, diagrams.
+
+The script runs in the plugin iframe with full D3 v7 available. Write JS that uses d3 to build SVG in the scratch div. The SVG is auto-extracted and converted to editable Figma nodes.
+
+Available globals: d3, scratch (offscreen div to render into).
+The script should either return an SVG string or render into scratch (auto-extracted).
+
+IMPORTANT: All text becomes editable Figma text nodes. This is the best renderer for data-driven graphics.`,
+    inputSchema: z.object({
+      parentId: z.string().describe('Parent node (typically slide ID)'),
+      script: z.string().describe('JavaScript code using d3. Access d3 and scratch div. Return SVG string or render into scratch.'),
+      x: z.number().optional(), y: z.number().optional(),
+      width: z.number().optional().describe('Resize result width'),
+      height: z.number().optional().describe('Resize result height')
+    })
+  }, async ({ parentId, script, x, y, width, height }) => {
+    const result = await bridge.send('runScript', {
+      asSvg: true, parentId, script, x, y, width, height
+    }, { timeout: 30000 });
+    return toolResult(result);
+  });
+
+  server.registerTool('render_rough', {
+    title: 'Render Rough.js Sketch',
+    description: `Render hand-drawn / sketchy style graphics using Rough.js as editable Figma nodes.
+
+Use for: informal diagrams, whiteboard-style visuals, creative/playful graphics.
+Available: rough (Rough.js), scratch div, plus a pre-created SVG element.
+
+Write JS that uses rough.svg(svg) to draw shapes. They render with a hand-drawn aesthetic (hachure, cross-hatch, zigzag, dots fills).
+
+IMPORTANT: All output is editable vector nodes in Figma.`,
+    inputSchema: z.object({
+      parentId: z.string().describe('Parent node (typically slide ID)'),
+      script: z.string().describe('JavaScript using rough. Create SVG element, use rough.svg(svgEl) to draw shapes.'),
+      x: z.number().optional(), y: z.number().optional(),
+      width: z.number().optional(), height: z.number().optional()
+    })
+  }, async ({ parentId, script, x, y, width, height }) => {
+    const result = await bridge.send('runScript', {
+      asSvg: true, parentId, script, x, y, width, height
+    }, { timeout: 30000 });
+    return toolResult(result);
+  });
+
+  server.registerTool('render_satori', {
+    title: 'Render HTML/CSS via Satori',
+    description: `Render HTML/CSS layout as editable Figma vector nodes using Satori (Vercel's HTML-to-SVG engine).
+
+Use ONLY when you need complex CSS layouts that are hard to express as SVG — flexbox cards, multi-column layouts, UI components. For data viz, prefer render_d3 instead.
+
+LIMITATIONS:
+- Text is rendered as vector PATHS, not editable text nodes. Users cannot edit text in Figma.
+- No CSS gradients (use solid colors instead)
+- No rgba() (use hex colors)
+- Requires fetching a font file (adds latency)
+- Uses JSX-object syntax, not HTML strings
+
+The script runs in the iframe. Use the satori() function with JSX-like objects.
+Must fetch a font first: fetch Inter WOFF, pass as fonts array.
+
+Available: satori (the render function), scratch div.`,
+    inputSchema: z.object({
+      parentId: z.string().describe('Parent node (typically slide ID)'),
+      script: z.string().describe('JavaScript that calls satori(element, options). Must fetch font first. Return the SVG string (async/Promise).'),
+      x: z.number().optional(), y: z.number().optional(),
+      width: z.number().optional().describe('Satori render width'),
+      height: z.number().optional().describe('Satori render height')
+    })
+  }, async ({ parentId, script, x, y, width, height }) => {
+    const result = await bridge.send('runScript', {
+      asSvg: true, parentId, script, x, y, width, height
+    }, { timeout: 60000 });
+    return toolResult(result);
+  });
 }
