@@ -25,30 +25,28 @@
   <!-- html-to-image — DOM snapshot to SVG -->
   <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11/dist/html-to-image.js"></script>
   <!-- Satori — HTML/CSS to SVG with real layout engine (Vercel) -->
-  <script src="https://cdn.jsdelivr.net/npm/satori@0.12.1/dist/satori.js"></script>
-  <script>
-    // Pre-init Satori with yoga WASM
-    var satoriReady = false;
-    var satoriModule = null;
-    (async function() {
-      try {
-        if (typeof satori_default !== 'undefined' || typeof satori !== 'undefined') {
-          // Try to init yoga WASM
-          var yogaUrl = 'https://cdn.jsdelivr.net/npm/satori@0.12.1/yoga.wasm';
-          var res = await fetch(yogaUrl);
-          var wasm = await res.arrayBuffer();
-          var mod = typeof satori_default !== 'undefined' ? satori_default : satori;
-          if (mod && mod.init) {
-            await mod.init(wasm);
-            satoriModule = mod;
-            satoriReady = true;
-            console.log('Satori initialized');
-          }
-        }
-      } catch(e) {
-        console.error('Satori init failed:', e);
-      }
-    })();
+  <script type="module">
+    // Satori standalone: ESM import + yoga WASM init
+    try {
+      // Import satori with its init function
+      const satoriMod = await import('https://esm.sh/satori@0.12.1');
+      const satori = satoriMod.default;
+      const init = satoriMod.init;
+
+      // Import yoga-wasm-web for proper WASM initialization
+      const yogaMod = await import('https://esm.sh/yoga-wasm-web@0.3.3');
+      const yogaInit = yogaMod.default;
+      const yoga = await yogaInit(await fetch('https://esm.sh/yoga-wasm-web@0.3.3/dist/yoga.wasm').then(r => r.arrayBuffer()));
+      await init(yoga);
+
+      window.satoriRender = satori;
+      window.satoriReady = true;
+      console.log('Satori + Yoga initialized');
+    } catch(e) {
+      console.error('Satori init failed:', e.message, e);
+      window.satoriRender = null;
+      window.satoriReady = false;
+    }
   </script>
   <script>
     const PORT = 3055;
@@ -189,7 +187,7 @@
             typeof rough !== 'undefined' ? rough : null,
             typeof frappe !== 'undefined' ? frappe : null,
             typeof htmlToImage !== 'undefined' ? htmlToImage : null,
-            satoriReady ? satoriModule : null,
+            window.satoriReady ? window.satoriRender : null,
             scratch
           );
           // Handle async scripts (return Promise)
