@@ -466,12 +466,16 @@ export function registerTools(server, bridge) {
 
   server.registerTool('create_video', {
     title: 'Create Video',
-    description: 'Create a video node (Slides only, may have limited support)',
+    description: 'Create a video node from URL or bytes (Slides only, MP4/MOV/WebM)',
     inputSchema: z.object({
-      parentId: z.string(), data: z.array(z.number())
+      parentId: z.string(),
+      url: z.string().optional().describe('Video URL to fetch (MP4/MOV/WebM)'),
+      data: z.array(z.number()).optional().describe('Raw video bytes'),
+      x: z.number().optional(), y: z.number().optional(),
+      width: z.number().optional(), height: z.number().optional()
     })
   }, async (params) => {
-    const result = await bridge.send('createVideo', params);
+    const result = await bridge.send('createVideo', params, { timeout: 60000 });
     return toolResult(result);
   });
 

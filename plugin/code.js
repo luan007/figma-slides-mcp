@@ -120,6 +120,30 @@ handlers.probeFigmaAPI = async function(params) {
       return { success: false, error: e.message || String(e) };
     }
   }
+  if (params.probe === 'createVideo') {
+    try {
+      // Try with a minimal valid mp4 header
+      var video = await figma.createVideoAsync(new Uint8Array(params.data || []));
+      return { success: true, nodeId: video.id, type: video.type };
+    } catch(e) {
+      return { success: false, error: e.message || String(e) };
+    }
+  }
+  if (params.probe === 'videoFromUrl') {
+    // Test if we can fetch video in iframe and pass to createVideoAsync
+    try {
+      var methods = [];
+      for (var k in figma) {
+        if (typeof figma[k] === 'function' && (k.includes('ideo') || k.includes('media') || k.includes('Gif'))) {
+          methods.push(k);
+        }
+      }
+      // Check if createVideoAsync signature hints
+      return { videoMethods: methods, createVideoAsync: typeof figma.createVideoAsync };
+    } catch(e) {
+      return { success: false, error: e.message || String(e) };
+    }
+  }
   return { error: 'specify params.probe' };
 };
 
@@ -681,9 +705,36 @@ handlers.createGif = async function(params) {
 handlers.createVideo = async function(params) {
   try {
     var parent = params.parentId ? await getNode(params.parentId) : figma.currentPage;
-    var video = await figma.createVideoAsync(new Uint8Array(params.data));
+    var bytes;
+    if (params.url) {
+      // Fetch video from URL via iframe relay (same pattern as placeImage)
+      var requestId = 'vid-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+      var bytesPromise = new Promise(function(resolve, reject) {
+        pendingImages.set(requestId, { resolve: resolve, reject: reject });
+        setTimeout(function() {
+          if (pendingImages.has(requestId)) {
+            pendingImages.delete(requestId);
+            reject({ code: 'TIMEOUT', message: 'Video fetch timed out' });
+          }
+        }, 60000);
+      });
+      figma.ui.postMessage({ type: 'fetchImage', url: params.url, requestId: requestId });
+      bytes = await bytesPromise;
+    } else if (params.data) {
+      bytes = new Uint8Array(params.data);
+    } else {
+      throw { code: 'INVALID_PARAMS', message: 'createVideo requires url or data' };
+    }
+    var video = await figma.createVideoAsync(bytes);
+    // createVideoAsync returns empty {} in Slides — API exists but is non-functional
+    if (!video || !video.id) {
+      throw { code: 'UNSUPPORTED_IN_SLIDES', message: 'createVideoAsync returned empty object — video creation not supported via plugin API. Add videos manually in Figma UI.' };
+    }
     parent.appendChild(video);
-    return { nodeId: video.id };
+    if (params.x !== undefined) video.x = params.x;
+    if (params.y !== undefined) video.y = params.y;
+    if (params.width && params.height) video.resize(params.width, params.height);
+    return { nodeId: video.id, type: video.type };
   } catch (e) {
     throw { code: 'UNSUPPORTED_IN_SLIDES', message: 'createVideo failed: ' + (e.message || e) };
   }
