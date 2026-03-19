@@ -41,12 +41,32 @@ digraph slide_workflow {
 }
 ```
 
+## Starting a Session
+
+The WebSocket server is **lazy** — it doesn't bind a port until you explicitly start it. This avoids port conflicts when multiple Claude Code instances are open.
+
+```
+start_session → starts WebSocket server, returns status + instructions
+```
+
+Three outcomes:
+- **Port free, plugin not yet connected**: "WebSocket running on 3055. Open Figma and run the plugin."
+- **Port taken by another instance**: "Port 3055 in use. Set FIGMA_WS_PORT or close other instance."
+- **Plugin already connected**: "Connected to [document] (slides)"
+
+After starting, the user needs to:
+1. Open a Figma Slides file
+2. Run the plugin: Plugins > Development > FigmaSlideMCP Bridge
+3. Plugin shows green dot = connected
+
+Use `connection_status` to check state without starting. Other tools auto-start as fallback if you skip `start_session`, but explicit start gives better error messages.
+
 ## Before You Start
 
 ### 1. Understand what's already there
 
 ```
-connection_status → confirms plugin connected + editor type
+start_session → start WebSocket, confirm connection
 get_slide_grid → understand existing deck structure
 get_slide_context(slideId) → read an existing slide's content, fonts, colors, spacing
 screenshot_slide(slideId) → SEE what the existing slides look like
@@ -285,6 +305,8 @@ Figma renders in child order (later = on top). Create background rectangles BEFO
 
 | Task | Command | Key params |
 |------|---------|------------|
+| Start session | `start_session` | Starts WS server, returns status |
+| Check connection | `connection_status` | Read-only, no auto-start |
 | New slide | `create_slide` | `fills: "#000000"` |
 | Check layout | `screenshot_slide` | `slideId, scale: 2` for detail |
 | Read style | `get_slide_context` | `slideId` of reference slide |
