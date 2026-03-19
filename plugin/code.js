@@ -98,6 +98,31 @@ var handlers = {};
 // --- Meta ---
 handlers.ping = async function() { return { pong: true }; };
 
+handlers.probeFigmaAPI = async function(params) {
+  if (params.probe === 'getSlideGrid') {
+    var grid = figma.getSlideGrid();
+    return {
+      type: typeof grid,
+      isArray: Array.isArray(grid),
+      constructor: grid && grid.constructor ? grid.constructor.name : 'null',
+      hasChildren: grid && grid.children ? true : false,
+      nodeType: grid && grid.type ? grid.type : 'none',
+      length: grid && grid.length !== undefined ? grid.length : 'no length'
+    };
+  }
+  if (params.probe === 'createSlide') {
+    try {
+      var slide = figma.createSlide();
+      var id = slide.id;
+      var type = slide.type;
+      return { success: true, nodeId: id, type: type };
+    } catch(e) {
+      return { success: false, error: e.message || String(e) };
+    }
+  }
+  return { error: 'specify params.probe' };
+};
+
 handlers.getEditorInfo = async function() {
   return {
     editorType: figma.editorType,
@@ -298,17 +323,31 @@ handlers.getSlideGrid = async function() {
   if (figma.editorType !== 'slides') {
     throw { code: 'UNSUPPORTED_IN_FIGMA', message: 'getSlideGrid only available in Slides editor' };
   }
-  var grid = figma.getSlideGrid();
-  return {
-    rows: grid.map(function(row) {
-      return {
-        rowId: row.id,
-        slides: row.children.map(function(slide) {
-          return { slideId: slide.id, name: slide.name, isSkipped: slide.isSkippedSlide || false };
-        })
-      };
-    })
-  };
+  // Find the SLIDE_GRID node — it's the direct child of the current page
+  var gridNode = null;
+  var children = figma.currentPage.children;
+  for (var i = 0; i < children.length; i++) {
+    if (children[i].type === 'SLIDE_GRID') {
+      gridNode = children[i];
+      break;
+    }
+  }
+  if (!gridNode) {
+    throw { code: 'NODE_NOT_FOUND', message: 'No SLIDE_GRID found on current page' };
+  }
+  var rows = [];
+  for (var r = 0; r < gridNode.children.length; r++) {
+    var row = gridNode.children[r];
+    if (row.type !== 'SLIDE_ROW') continue;
+    var slides = [];
+    for (var s = 0; s < row.children.length; s++) {
+      var slide = row.children[s];
+      if (slide.type !== 'SLIDE') continue;
+      slides.push({ slideId: slide.id, name: slide.name, isSkipped: slide.isSkippedSlide || false });
+    }
+    rows.push({ rowId: row.id, slides: slides });
+  }
+  return { rows: rows };
 };
 
 function buildNodeTree(node, depth, currentDepth) {
@@ -433,15 +472,23 @@ handlers.exportAllSlides = async function(params) {
   if (figma.editorType !== 'slides') {
     throw { code: 'UNSUPPORTED_IN_FIGMA', message: 'exportAllSlides only available in Slides editor' };
   }
-  var grid = figma.getSlideGrid();
+  // Find SLIDE_GRID node
+  var gridNode = null;
+  var pageChildren = figma.currentPage.children;
+  for (var i = 0; i < pageChildren.length; i++) {
+    if (pageChildren[i].type === 'SLIDE_GRID') { gridNode = pageChildren[i]; break; }
+  }
+  if (!gridNode) throw { code: 'NODE_NOT_FOUND', message: 'No SLIDE_GRID found' };
   var slides = [];
   var maxSlides = params.maxSlides || 50;
   var count = 0;
-  for (var r = 0; r < grid.length; r++) {
-    var row = grid[r];
+  for (var r = 0; r < gridNode.children.length; r++) {
+    var row = gridNode.children[r];
+    if (row.type !== 'SLIDE_ROW') continue;
     for (var s = 0; s < row.children.length; s++) {
       if (count >= maxSlides) break;
       var slide = row.children[s];
+      if (slide.type !== 'SLIDE') continue;
       var bytes = await slide.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: params.scale || 0.5 } });
       slides.push({ slideId: slide.id, name: slide.name, base64: figma.base64Encode(bytes) });
       count++;
@@ -457,16 +504,9 @@ handlers.createSlide = async function(params) {
   }
   var slide = figma.createSlide();
   if (params.fills) slide.fills = expandFills(params.fills);
-  var grid = figma.getSlideGrid();
-  var row = null;
-  if (params.rowIndex !== undefined && grid[params.rowIndex]) {
-    row = grid[params.rowIndex];
-    row.appendChild(slide);
-  } else if (grid.length > 0) {
-    row = grid[grid.length - 1];
-    row.appendChild(slide);
-  }
-  return { nodeId: slide.id, rowId: row ? row.id : null };
+  // createSlide() auto-places the slide. Find its parent row.
+  var rowId = slide.parent ? slide.parent.id : null;
+  return { nodeId: slide.id, rowId: rowId };
 };
 
 handlers.createSlideRow = async function(params) {
@@ -499,11 +539,17 @@ handlers.reorderSlides = async function(params) {
   if (figma.editorType !== 'slides') {
     throw { code: 'UNSUPPORTED_IN_FIGMA', message: 'reorderSlides only available in Slides editor' };
   }
-  var rows = [];
-  for (var i = 0; i < params.rowIds.length; i++) {
-    rows.push(await getNode(params.rowIds[i]));
+  // Find grid node and reorder rows by re-inserting them
+  var gridNode = null;
+  var pageChildren = figma.currentPage.children;
+  for (var i = 0; i < pageChildren.length; i++) {
+    if (pageChildren[i].type === 'SLIDE_GRID') { gridNode = pageChildren[i]; break; }
   }
-  figma.setSlideGrid(rows);
+  if (!gridNode) throw { code: 'NODE_NOT_FOUND', message: 'No SLIDE_GRID found' };
+  for (var j = 0; j < params.rowIds.length; j++) {
+    var row = await getNode(params.rowIds[j]);
+    gridNode.insertChild(j, row);
+  }
   return {};
 };
 
