@@ -12,6 +12,18 @@
 <body>
   <span id="status" class="disconnected"></span>
   <span id="label">Disconnected</span>
+  <div id="scratch" style="position:absolute;left:-9999px;top:-9999px;"></div>
+  <!-- Graphics toolkit for runScript — FULL POWER -->
+  <!-- D3 full bundle (all modules) -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <!-- SVG.js — programmatic SVG -->
+  <script src="https://cdn.jsdelivr.net/npm/@svgdotjs/svg.js@3.2/dist/svg.min.js"></script>
+  <!-- Rough.js — hand-drawn style -->
+  <script src="https://unpkg.com/roughjs@latest/bundled/rough.js"></script>
+  <!-- Frappe Charts — zero-config SVG charts -->
+  <script src="https://unpkg.com/frappe-charts@2.0.0/dist/frappe-charts.umd.min.js"></script>
+  <!-- html-to-image — DOM snapshot to SVG -->
+  <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11/dist/html-to-image.js"></script>
   <script>
     const PORT = 3055;
     const MAX_BACKOFF = 30000;
@@ -127,10 +139,29 @@
         };
         img.src = url;
       } else if (msg.type === 'runScript') {
-        // Run JS script in iframe that returns SVG string or data
+        // Run JS script in iframe with full graphics toolkit
+        // Available: d3, SVG (svg.js), rough, frappe, htmlToImage, scratch div
+        // Script should return SVG string, or render into scratch div
+        var scratch = document.getElementById('scratch');
+        scratch.innerHTML = '';
         try {
-          var fn = new Function(msg.script);
-          var result = fn();
+          var fn = new Function('d3', 'SVG', 'rough', 'frappe', 'htmlToImage', 'scratch', msg.script);
+          var result = fn(
+            typeof d3 !== 'undefined' ? d3 : null,
+            typeof SVG !== 'undefined' ? SVG : null,
+            typeof rough !== 'undefined' ? rough : null,
+            typeof frappe !== 'undefined' ? frappe : null,
+            typeof htmlToImage !== 'undefined' ? htmlToImage : null,
+            scratch
+          );
+          // If result is not a string, try to extract SVG from scratch div
+          if (!result || typeof result !== 'string') {
+            var svgEl = scratch.querySelector('svg');
+            if (svgEl) {
+              result = new XMLSerializer().serializeToString(svgEl);
+            }
+          }
+          scratch.innerHTML = '';
           parent.postMessage({
             pluginMessage: {
               type: 'scriptResult',
@@ -139,11 +170,12 @@
             }
           }, '*');
         } catch(e) {
+          scratch.innerHTML = '';
           parent.postMessage({
             pluginMessage: {
               type: 'scriptError',
               requestId: msg.requestId,
-              error: e.message
+              error: e.message + (e.stack ? '\n' + e.stack.split('\n')[1] : '')
             }
           }, '*');
         }
