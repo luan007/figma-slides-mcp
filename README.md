@@ -26,23 +26,24 @@ Three pieces:
 
 ### Claude Code (recommended)
 
-**Step 1 — Install the plugin:**
+**Step 1 — Add the marketplace and install:**
 
-In Claude Code, run:
 ```
-/plugin install luan007/figma-slides-mcp
+/plugin marketplace add luan007/figma-slides-mcp
+/plugin install figma-slides-mcp@figma-slides-mcp
 ```
 
-This clones the repo, loads the MCP server config and design skill automatically.
+This clones the repo, loads the MCP server and design skill automatically.
 
 **Step 2 — Load the Figma plugin:**
 
 1. Open a **Figma Slides** file
 2. **Plugins → Development → Import plugin from manifest...**
-3. Navigate to the cloned plugin directory:
+3. Navigate to the cloned plugin directory — check the plugin cache:
    ```
-   ~/.claude/plugins/figma-slides-mcp/plugin/manifest.json
+   ~/.claude/plugins/cache/figma-slides-mcp/
    ```
+   Find `plugin/manifest.json` inside and select it.
 4. Run the plugin — green dot = connected
 
 You only import the manifest once. After that it's in your recent plugins.

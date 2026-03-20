@@ -3,12 +3,15 @@
 ## Claude Code — Plugin Install (recommended)
 
 ```
-/plugin install luan007/figma-slides-mcp
+/plugin marketplace add luan007/figma-slides-mcp
+/plugin install figma-slides-mcp@figma-slides-mcp
 ```
 
 This clones the repo and auto-loads the MCP server (via npx) and design skill. No `npm install` needed — the MCP server runs through npx from npm.
 
 Then load the Figma plugin (see [Figma Plugin Setup](#figma-plugin-setup) below).
+
+The Figma plugin files are in the cloned directory at `~/.claude/plugins/cache/figma-slides-mcp/`.
 
 ## Other MCP Clients (Cursor, Windsurf, etc.)
 

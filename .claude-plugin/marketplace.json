@@ -1,0 +1,24 @@
+{
+  "name": "figma-slides-mcp",
+  "owner": {
+    "name": "Mike Luan"
+  },
+  "metadata": {
+    "description": "Figma Slides MCP — create and edit presentations with built-in D3, Rough.js, and Satori renderers"
+  },
+  "plugins": [
+    {
+      "name": "figma-slides-mcp",
+      "source": ".",
+      "description": "Figma Slides MCP — create and edit presentations with built-in D3, Rough.js, and Satori renderers for charts, diagrams, and custom graphics.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Mike Luan"
+      },
+      "homepage": "https://github.com/luan007/figma-slides-mcp",
+      "license": "MIT",
+      "keywords": ["figma", "slides", "mcp", "d3", "presentation"],
+      "category": "design"
+    }
+  ]
+}
