@@ -1,120 +1,173 @@
-# FigmaSlideMCP
+# figma-slides-mcp
 
-MCP server that gives AI agents full read/write/visual control over Figma Slides.
+MCP server that lets AI create and edit Figma Slides — with built-in D3, Rough.js, and Satori renderers for charts, diagrams, and custom graphics.
 
-## Architecture
+![architecture](https://img.shields.io/badge/arch-MCP%20%2B%20WebSocket%20%2B%20Figma%20Plugin-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![enjoy](https://img.shields.io/badge/ENJOY_😄-FF33BB)
+
+## What this is
+
+An MCP server that gives AI agents (Claude, Cursor, etc.) direct control over Figma Slides. The AI can create slides, add text, draw shapes, render D3 charts, place images, and screenshot its work — all in real-time, in your actual Figma file.
+
+**This is not a design-to-code tool.** It goes the other direction: AI → Figma. Your agent designs slides for you.
+
+## How it works
 
 ```
-AI Agent <--stdio--> MCP Server <--WebSocket--> Figma Plugin <--figma.*--> Canvas
+Your AI Agent ←—stdio—→ MCP Server ←—WebSocket—→ Figma Plugin ←—API—→ Slides Canvas
 ```
 
-Two components:
-- **Figma Plugin** (3 files, no build) — bridge between WebSocket and Figma's Plugin API
-- **MCP Server** (plain JS) — exposes ~42 tools via stdio, connects to plugin via WebSocket
+Three pieces:
 
-## Quick Start
+1. **MCP Server** — Node.js process that exposes tools over stdio. Your AI client spawns it.
+2. **Figma Plugin** — Runs inside Figma, executes commands on the canvas. Connects via WebSocket.
+3. **Design Skill** (optional) — Teaches the AI how to design well: layout, typography, color, D3 patterns.
 
-### 1. Install
+## Quick start
+
+### Claude Code (recommended)
+
+**Step 1 — Install the plugin:**
+
+In Claude Code, run:
+```
+/plugin install luan007/figma-slides-mcp
+```
+
+This clones the repo, loads the MCP server config and design skill automatically.
+
+**Step 2 — Load the Figma plugin:**
+
+1. Open a **Figma Slides** file
+2. **Plugins → Development → Import plugin from manifest...**
+3. Navigate to the cloned plugin directory:
+   ```
+   ~/.claude/plugins/figma-slides-mcp/plugin/manifest.json
+   ```
+4. Run the plugin — green dot = connected
+
+You only import the manifest once. After that it's in your recent plugins.
+
+**Step 3 — Go:**
+
+Tell Claude: **"Start a Figma Slides session"**
+
+### Other MCP clients (Cursor, Windsurf, etc.)
 
 ```bash
-npm install
+git clone https://github.com/luan007/figma-slides-mcp.git
+cd figma-slides-mcp && npm install
 ```
 
-### 2. Load the Plugin in Figma
-
-1. Open a Figma Slides file
-2. Go to **Plugins > Development > Import plugin from manifest...**
-3. Select `plugin/manifest.json` from this repo
-4. Run the plugin — it connects to `ws://localhost:3055`
-
-### 3. Configure your MCP client
-
-Add to your MCP settings (e.g. Claude Code):
-
+Add to your MCP config:
 ```json
 {
   "mcpServers": {
     "figma-slides": {
-      "command": "node",
-      "args": ["server/index.js"],
-      "cwd": "/path/to/figma-slide-mcp"
+      "command": "npx",
+      "args": ["-y", "figma-slides-mcp"]
     }
   }
 }
 ```
 
-### 4. Use it
+Then import `plugin/manifest.json` into Figma (same as Step 2 above, but from your clone directory).
 
-The agent now has full control of your Figma Slides canvas.
+## Graphics renderers
 
-## Tools
+The Figma plugin bundles full graphics libraries. Your AI can use them to render complex visuals directly onto slides.
 
-### Tier 1: High-Level
-| Tool | Description |
-|------|-------------|
-| `connection_status` | Check plugin connection state |
-| `get_editor_info` | Editor type, document name, page count |
-| `get_slide_grid` | Full deck structure (rows + slides) |
-| `get_slide_context` | Semantic dump of slide content |
-| `screenshot_slide` | Visual capture as PNG |
-| `screenshot_all_slides` | Thumbnails of all slides |
-| `create_slide` | Create new slide (1920x1080) |
-| `clear_slide` | Wipe slide content |
+| Renderer | What it does | Text stays editable? |
+|----------|-------------|---------------------|
+| **D3 v7** | Charts, data viz, diagrams, tables | Yes |
+| **Rough.js** | Hand-drawn / sketchy style graphics | Yes |
+| **Satori** | HTML/CSS → SVG (flexbox layouts) | No (becomes paths) |
+| **SVG import** | Icons, logos, custom vectors | Depends |
 
-### Tier 2: Low-Level
-| Tool | Description |
-|------|-------------|
-| `create_node` | Create FRAME, RECTANGLE, ELLIPSE, TEXT, etc. |
-| `set_properties` | Modify any node (position, fills, effects...) |
-| `delete_node` / `clone_node` / `reparent_node` | Node management |
-| `group_nodes` / `ungroup_node` | Grouping |
-| `set_text` / `set_text_range_style` | Text editing with auto font loading |
-| `place_image` | Place image from URL or bytes |
-| `create_table` / `set_cell_content` / etc. | Table operations |
-| `create_shape_with_text` | Shapes with labels |
-| `create_gif` / `create_video` | Media (Slides only) |
-| `set_slide_transition` / `set_slide_theme` | Slide properties |
-| `duplicate_slide` / `reorder_slides` | Slide management |
+The AI writes a D3 script, the plugin runs it in a sandboxed iframe, extracts the SVG, and converts it to editable Figma nodes. Text elements become real Figma text — you can edit them after.
 
-### Tier 3: Introspection
-| Tool | Description |
-|------|-------------|
-| `get_node_tree` | Structural tree with depth control |
-| `get_node_properties` | Full/selective property read |
-| `find_nodes` | Search by name, type, visibility |
-| `get_selection` / `set_selection` | Selection management |
-| `export_node` | Export to PNG/JPG/SVG/PDF |
-| `list_fonts` / `list_themes` | Available resources |
+## What the AI can do
 
-### Tier 4: Batch
-| Tool | Description |
-|------|-------------|
-| `batch_operations` | Multiple commands in one call with `$N.field` references |
+- Create, duplicate, delete, reorder slides
+- Add any shape: rectangles, ellipses, lines, frames, text
+- Style anything: fills, strokes, effects, opacity, corner radius
+- Set text with per-character styling (font, size, color, spacing)
+- Render D3 charts, Rough.js sketches, Satori layouts
+- Place images from URL
+- Screenshot slides to verify its own work
+- Batch multiple operations in one call
+- Search nodes, export to PNG/SVG/PDF
 
-## Batch Example
+## Design skill
 
-Create a slide with title and subtitle in one call:
+The bundled skill at `skills/figma-slides-mcp/SKILL.md` teaches the AI:
 
-```json
-{
-  "commands": [
-    { "cmd": "createSlide", "params": { "fills": "#1a1a2e" } },
-    { "cmd": "createNode", "params": { "parentId": "$0.nodeId", "type": "TEXT", "props": { "text": "Hello World", "x": 100, "y": 100 } } },
-    { "cmd": "createNode", "params": { "parentId": "$0.nodeId", "type": "RECTANGLE", "props": { "x": 100, "y": 300, "width": 800, "height": 400, "fills": "#2d2d5e", "cornerRadius": 12 } } }
-  ]
-}
+- Layout planning (coordinate grids, column systems)
+- Typography hierarchy (font sizes, spacing, weight)
+- Visual design theory (when to use charts vs text, color systems)
+- D3 patterns (tables, flows, comparisons, Gantt charts, donuts)
+- The screenshot-verify-fix loop
+- API gotchas (gradient transforms, fill opacity, batch limits)
+
+It's optional but makes a big difference. Without it, the AI tends to dump text on slides. With it, the AI thinks in layers and designs visually.
+
+**Claude Code plugin install** includes the skill automatically. For manual setup, copy it to `~/.claude/skills/figma-slides-mcp/`.
+
+## Limitations & quirks
+
+> This is an early-stage project. It works, but has edges.
+
+- **Single session only.** One MCP server → one Figma file at a time. No multi-document support yet.
+- **Port conflict.** If another instance is running on port 3055, it fails. Set `FIGMA_WS_PORT` to use a different port.
+- **Plugin must be running.** The Figma plugin needs to be open and connected. If you close it, the MCP server can't reach Figma.
+- **Figma Slides only.** Doesn't work with regular Figma Design files. Must be a Slides file.
+- **Tables are limited.** `createTable` works but is Slides-only and can be finicky.
+- **Video is broken.** `createVideoAsync` returns empty. Figma's API limitation.
+- **Satori text is paths.** Text rendered through Satori becomes vector paths — not editable as text in Figma. Use D3 instead when text editability matters.
+- **No undo across sessions.** The AI's changes are real Figma operations. You can Cmd+Z in Figma, but only within the current session.
+- **Dev plugin, not published.** The Figma plugin is loaded from local manifest, not the Figma Community. You need to import it manually once.
+
+## Under construction
+
+- [ ] Multi-session support (multiple Figma files)
+- [ ] Published Figma Community plugin (no manual manifest import)
+- [ ] Slide templates / presets
+- [ ] Better image search integration
+- [ ] Animation / transition authoring
+
+## Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FIGMA_WS_PORT` | `3055` | WebSocket port for plugin connection |
+
+## Project structure
+
+```
+figma-slides-mcp/
+├── server/           # MCP server (Node.js, no build)
+│   ├── index.js      # Entry point (stdio transport)
+│   ├── bridge.js     # WebSocket bridge to plugin
+│   ├── tools.js      # All MCP tool definitions
+│   └── utils.js      # Helpers
+├── plugin/           # Figma plugin (no build)
+│   ├── manifest.json # Import this in Figma
+│   ├── code.js       # Plugin logic
+│   └── ui.html       # UI panel + D3/Rough.js/Satori loaders
+├── skills/           # AI design skill
+│   └── figma-slides-mcp/
+│       └── SKILL.md
+├── .claude-plugin/   # Claude Code plugin manifest
+│   └── plugin.json
+├── .mcp.json         # MCP server config (auto-loaded by plugin system)
+└── test/
 ```
 
-## Environment Variables
+Zero TypeScript, zero bundlers, zero build steps. Plain JS all the way down.
 
-- `FIGMA_WS_PORT` — WebSocket port (default: `3055`)
+## For AI agents
 
-## No Build Required
+See [AGENT-INSTALL.md](AGENT-INSTALL.md) for detailed setup instructions, troubleshooting, and the full tool reference.
 
-Plugin: 3 plain files. Server: `node server/index.js`. Zero TypeScript, zero bundlers.
+## License
 
-## Testing
-
-```bash
-npm test
-```
+MIT

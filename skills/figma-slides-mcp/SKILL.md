@@ -1,326 +1,679 @@
 ---
 name: figma-slides-mcp
-description: Use when creating or editing Figma Slides via the figma-slides MCP server. Covers the verify-after-every-block workflow, batch sizing, text handling, coordinate planning, graphics renderers (D3, Satori, Rough.js), and visual design patterns.
+description: Use when creating or editing Figma Slides via the figma-slides MCP server. Covers the verify-after-every-block workflow, batch sizing, text handling, coordinate planning, graphics renderers (D3, Satori, Rough.js), slide design theory, and visual design patterns. Use this skill whenever the user mentions "figma slides", "presentation", "slide deck", "make slides", or wants to create/edit slides programmatically via MCP tools.
 ---
 
 # Figma Slides MCP
 
-## Overview
+## I. Design Philosophy — The Non-Negotiables
 
-Technique for using the figma-slides MCP to build presentation slides programmatically. The core discipline: **verify visually after every logical block** — never batch blindly.
+You are a slide designer, not a text renderer. Every slide should look like a human designer made it.
 
-## When to Use
+### Think in Layers, Build in Modules
 
-- Creating slides via `mcp__figma-slides__*` tools
-- Editing existing Figma Slides content programmatically
-- Building slide decks with data visualizations, charts, or complex graphics
-
-## The Golden Rule: Look, Then Act, Then Look Again
-
-The agent has no eyes by default. **You must actively look** at every stage:
+Never generate a page in one shot. Decompose every slide into visual layers:
 
 ```
-UNDERSTAND → CREATE → SCREENSHOT → ASSESS → REFINE → SCREENSHOT → DONE
+Layer 1: Background (color, gradient glow, subtle texture)
+Layer 2: Structure (cards, panels, dividers, regions)
+Layer 3: Graphics (charts, diagrams, icons, images)
+Layer 4: Typography (headings, body, labels, accents)
+Layer 5: Polish (alignment fixes, spacing tweaks, accent details)
 ```
 
-This is not optional. Every slide goes through this loop. You will get coordinates wrong, text will overlap, sizing will be off — that's expected. The discipline is catching and fixing it immediately, not after 5 slides.
+Build each layer, screenshot, verify, then add the next. This is how designers work — and it's how you avoid spending 20 tool calls on something that's fundamentally misaligned.
 
-## Workflow
+### Visual > Verbal
 
-```dot
-digraph slide_workflow {
-  "Understand context" -> "Read existing slides";
-  "Read existing slides" -> "Plan layout";
-  "Plan layout" -> "Create block";
-  "Create block" -> "Screenshot";
-  "Screenshot" -> "Good?" [label="always look"];
-  "Good?" -> "Create next block" [label="yes"];
-  "Good?" -> "Fix issues" [label="no"];
-  "Fix issues" -> "Screenshot" [label="verify fix"];
-  "Create next block" -> "Screenshot" [label="verify each block"];
-}
+| Bad | Good |
+|-----|------|
+| Bullet points listing features | Card grid with icons + short labels |
+| Table of numbers | Bar chart or donut chart |
+| Process described in paragraph | Flow diagram with arrows |
+| "We have 4 pillars" | 4 visual columns with icons |
+| Wall of text | Pull quote + supporting visual |
+
+If information can be a chart, diagram, flow, or image — make it one. Words are the fallback, not the default.
+
+### Restraint is Design
+
+- **1-2 accent colors max.** One accent for emphasis, one for secondary. Everything else is grayscale.
+- **Negative space is not wasted space.** A slide with breathing room looks professional. A crammed slide looks amateur.
+- **One idea per slide.** If you have 3 points, consider 3 slides.
+- **Repetition is the enemy.** If slide 5 looks like slide 4 looks like slide 3, you've failed. Vary layouts: left-right, centered, full-bleed, grid, asymmetric.
+
+### Typography is Design
+
+Font size ratios, letter spacing, and line height are not afterthoughts — they ARE the design.
+
+| Role | Size | Weight | Spacing | Font |
+|------|------|--------|---------|------|
+| Section label | 11-13px | Regular | +15-20% tracking | Monospace |
+| Main heading | 44-64px | Regular/400 | -2% to -3% tracking | Serif |
+| Subheading | 22-32px | SemiBold | -1% tracking | Sans |
+| Body text | 15-18px | Regular | 0% | Sans |
+| Caption/meta | 12-14px | Regular | +5% tracking | Mono or Sans |
+| Accent number | 36-72px | Regular | -2% tracking | Serif |
+
+Always set `lineHeight` (150-180% for body, 100-120% for headings) and `letterSpacing`. Default Figma values look generic.
+
+
+## II. Session Setup
+
+### Starting
+
+```
+start_session          → binds WebSocket, returns connection status
+get_slide_grid         → see existing deck structure
+screenshot_slide(id)   → SEE what exists before touching anything
+list_fonts(query: "X") → check exact font names (ALWAYS use query param)
+get_slide_context(id)  → read fonts, colors, spacing from existing slides
 ```
 
-## Starting a Session
+Three outcomes from `start_session`:
+- **Port free**: "WebSocket running on 3055. Open Figma and run the plugin."
+- **Port taken**: "Port 3055 in use. Set FIGMA_WS_PORT or close other instance."
+- **Already connected**: "Connected to [document] (slides)"
 
-The WebSocket server is **lazy** — it doesn't bind a port until you explicitly start it. This avoids port conflicts when multiple Claude Code instances are open.
+### Before Creating Anything
 
-```
-start_session → starts WebSocket server, returns status + instructions
-```
+If the deck already has slides, inspect 2-3 with `get_slide_context` + `screenshot_slide` to learn the existing design language. Match it — don't impose your own.
 
-Three outcomes:
-- **Port free, plugin not yet connected**: "WebSocket running on 3055. Open Figma and run the plugin."
-- **Port taken by another instance**: "Port 3055 in use. Set FIGMA_WS_PORT or close other instance."
-- **Plugin already connected**: "Connected to [document] (slides)"
 
-After starting, the user needs to:
-1. Open a Figma Slides file
-2. Run the plugin: Plugins > Development > FigmaSlideMCP Bridge
-3. Plugin shows green dot = connected
-
-Use `connection_status` to check state without starting. Other tools auto-start as fallback if you skip `start_session`, but explicit start gives better error messages.
-
-## Before You Start
-
-### 1. Understand what's already there
+## III. The Build Loop
 
 ```
-start_session → start WebSocket, confirm connection
-get_slide_grid → understand existing deck structure
-get_slide_context(slideId) → read an existing slide's content, fonts, colors, spacing
-screenshot_slide(slideId) → SEE what the existing slides look like
-list_fonts(query: "Inter") → check exact font names available
+PLAN → CREATE MODULE → SCREENSHOT → ASSESS → FIX → SCREENSHOT → NEXT MODULE
 ```
 
-**Always inspect existing slides first.** Use `get_slide_context` on 2-3 slides to learn: font family, font sizes for headings/body, color palette, spacing patterns. Use `screenshot_slide` to actually see the visual style. Match what's there — don't impose a new design language on an existing deck.
+This loop is **mandatory**. You will get coordinates wrong, text will overlap, sizing will be off — that's expected. The discipline is catching it immediately, not after 5 slides.
 
-### 2. After creating anything — screenshot immediately
+### When to Screenshot
 
-Don't create 3 slides then look. Create one element group, screenshot, verify, fix. The visual feedback loop is your primary debugging tool:
+| Event | Screenshot? | Scale |
+|-------|------------|-------|
+| After creating a new slide background | Yes | 1 |
+| After adding a text group (label + title) | Yes | 1 |
+| After a D3/SVG render | Yes — these often need tweaks | 1 |
+| After placing an image | Yes | 1 |
+| After a simple property fix (color, position) | Only if unsure | 1 |
+| After completing a full slide | Yes — final check | 1 |
+| Similar slide to one you just verified | Can skip intermediate screenshots | - |
 
-- **After creating a slide**: screenshot to confirm background color
-- **After adding a text group**: screenshot to check sizing, position, clipping
-- **After adding a card/panel**: screenshot to verify borders render, content fits
-- **After a batch operation**: screenshot to catch overlaps, misalignment
-- **After any fix**: screenshot to confirm the fix worked
+**Context management**: `screenshot_slide` at scale:1 returns a 1920x1080 image. Use scale:1 for verification (not scale:2). For overview of many slides, use `screenshot_all_slides` with scale:0.5.
 
-### 2. Plan coordinates on paper
+### Coordinate Planning
 
-Slides are fixed **1920 x 1080**. Plan your layout grid before placing anything:
+Slides are **1920 x 1080**. Plan your layout grid BEFORE placing anything:
 
-| Region | Typical Y range | Usage |
-|--------|----------------|-------|
-| Header | 30-80 | Page label, section name |
-| Title | 90-200 | Main heading |
-| Divider line | 200-220 | Horizontal separator |
-| Content | 230-750 | Cards, text, images |
-| Footer tagline | 750-800 | Supporting text |
-| Footer brand | 1000-1030 | Logo / brand name |
+| Region | Y Range | Usage |
+|--------|---------|-------|
+| Top label | 50-70 | Section name, mono, accent |
+| Title | 85-170 | Main heading, large serif |
+| Subtitle area | 170-220 | Supporting text, dividers |
+| Content zone | 230-750 | Cards, charts, images, text |
+| Footer tagline | 780-830 | Pull quotes, summary lines |
+| Brand footer | 1000-1060 | Logo, attribution |
 
-Horizontal thirds: `x=51`, `x=660`, `x=1270` with ~570px card width each.
+**Common column layouts:**
 
-## Graphics Renderers — Choosing the Right One
+| Layout | Columns | X positions | Width each |
+|--------|---------|-------------|------------|
+| Full width | 1 | x=115 | ~1690 |
+| Two columns | 2 | x=115, x=1000 | ~800, ~800 |
+| Three columns | 3 | x=115, x=670, x=1225 | ~520 each |
+| Four columns | 4 | x=115, x=540, x=965, x=1390 | ~400 each |
+| Left heavy | 2 | x=115 (w=780), x=1000 (w=800) | asymmetric |
 
-```dot
-digraph renderer_choice {
-  "What are you creating?" [shape=diamond];
-  "Data viz / chart?" [shape=diamond];
-  "Sketchy / hand-drawn?" [shape=diamond];
-  "Complex CSS layout?" [shape=diamond];
-  "render_d3" [shape=box, style=filled, fillcolor="#4ECDC4"];
-  "render_rough" [shape=box, style=filled, fillcolor="#FFE66D"];
-  "render_satori" [shape=box, style=filled, fillcolor="#C084FC"];
-  "create_svg or create_node" [shape=box, style=filled, fillcolor="#888888"];
 
-  "What are you creating?" -> "Data viz / chart?" [label="graphics"];
-  "Data viz / chart?" -> "render_d3" [label="yes"];
-  "Data viz / chart?" -> "Sketchy / hand-drawn?" [label="no"];
-  "Sketchy / hand-drawn?" -> "render_rough" [label="yes"];
-  "Sketchy / hand-drawn?" -> "Complex CSS layout?" [label="no"];
-  "Complex CSS layout?" -> "render_satori" [label="yes"];
-  "Complex CSS layout?" -> "create_svg or create_node" [label="simple shapes"];
-}
+## IV. Building Blocks — Choosing Your Tool
+
+The most important decision on every slide: **use native Figma nodes or a renderer?**
+
+```
+Is it text + simple shapes (rects, lines, circles)?
+  → YES → Use batch_operations with create_node + setText + setTextRangeStyle
+  → NO ↓
+
+Is it a data visualization (chart, graph, diagram with data binding)?
+  → YES → Use render_d3
+  → NO ↓
+
+Is it a hand-drawn / sketchy aesthetic?
+  → YES → Use render_rough
+  → NO ↓
+
+Is it a complex layout that REQUIRES CSS flexbox?
+  → YES → Use render_satori (last resort — text becomes non-editable paths)
+  → NO → Use create_svg for simple vector graphics
 ```
 
-### render_d3 — PREFERRED for data graphics
+### When to Use Native Nodes (PREFERRED for most slide content)
 
-Use for: bar charts, pie/donut charts, line charts, treemaps, force graphs, any D3 visualization.
+Native nodes give you **editable text**, **individual element control**, and **no renderer overhead**. Use them for:
 
-- Full D3 v7 available in iframe
-- Script has access to `d3` and `scratch` (offscreen div)
-- Text renders as **editable Figma text nodes**
-- Return SVG string or render into scratch (auto-extracted)
+- Headings, labels, body text
+- Background rectangles, cards, panels
+- Divider lines
+- Simple geometric decorations
+- Any layout where you can calculate coordinates
+
+**Pattern: Card with label + title + body**
+```
+batch_operations: [
+  // Card background (create FIRST — z-order)
+  { cmd: "createNode", params: { type: "RECTANGLE", parentId: slideId, props: { x: 115, y: 200, width: 780, height: 300, fills: "rgba(255,255,255,0.02)", strokes: [...], strokeWeight: 1, cornerRadius: 0 }}},
+  // Label text
+  { cmd: "createNode", params: { type: "TEXT", parentId: slideId, props: { x: 140, y: 220, width: 730 }}},
+  { cmd: "setText", params: { nodeId: "$1.nodeId", text: "CATEGORY", fontName: "Space Mono Regular" }},
+  // Title text
+  { cmd: "createNode", params: { type: "TEXT", parentId: slideId, props: { x: 140, y: 255, width: 730 }}},
+  { cmd: "setText", params: { nodeId: "$3.nodeId", text: "Card Title Here", fontName: "DM Sans SemiBold" }},
+]
+// → then getTextContent for lengths → then setTextRangeStyle
+```
+
+### When to Use D3 (data-driven graphics)
+
+D3 shines when you have **data arrays** to render — tables, charts, positioned lists, flow diagrams. See Section VI for comprehensive D3 guidance.
+
+### When to Use place_image (photos, external graphics)
+
+For photographs, illustrations, and external assets. Supports URL fetching.
+
+### Icons — How to Actually Use Them
+
+Fetch SVG icons from CDN and place them with `create_svg` or `place_image`:
+
+```
+place_image → parentId, url: "https://unpkg.com/lucide-static/icons/flask-conical.svg", x, y, width: 20, height: 20
+```
+
+**Icon sources:**
+
+| Source | URL Pattern | Notes |
+|--------|-------------|-------|
+| Lucide | `https://unpkg.com/lucide-static/icons/{name}.svg` | 1400+ icons, confirmed working |
+| Simple Icons (brands) | `https://cdn.simpleicons.org/{brand}/{color}` | Google, Anthropic, etc. |
+| Tabler | `https://unpkg.com/@tabler/icons/icons/outline/{name}.svg` | 4000+ icons |
+| Feather | `https://unpkg.com/feather-icons/dist/icons/{name}.svg` | Lucide predecessor |
+| Heroicons | `https://unpkg.com/heroicons/24/outline/{name}.svg` | Tailwind team |
+| Phosphor | `https://unpkg.com/@phosphor-icons/core/assets/regular/{name}.svg` | 6 weights |
+
+Icons placed via `place_image` render as image fills. For recolorable vector icons, fetch the SVG content and use `create_svg`.
+
+### Images
+
+| Source | URL Pattern | Notes |
+|--------|-------------|-------|
+| Lorem Picsum | `https://picsum.photos/{w}/{h}` | Random photo placeholder |
+| Picsum by ID | `https://picsum.photos/id/{id}/{w}/{h}` | Specific image |
+| Picsum filtered | `https://picsum.photos/{w}/{h}?grayscale&blur=2` | Built-in effects |
+| Unsplash | `https://images.unsplash.com/photo-{id}?w={w}&fit=crop` | Direct links work |
+| Placeholder | `https://placehold.co/{w}x{h}/{bg}/{text}` | Solid color blocks |
+
+Use `place_image` with `scaleMode: "FILL"` or `"FIT"`. Apply Figma native effects (blur, opacity) via `set_properties` after placing.
+
+
+## V. Text Mastery
+
+Text is the #1 source of errors. Follow this pattern religiously.
+
+### The Three-Step Dance
+
+```
+Step 1: createNode (type: TEXT, with x, y, width)
+Step 2: setText (nodeId, text, fontName)   ← sets content + loads font
+Step 3: getTextContent (nodeId)            ← READ the actual character count
+Step 4: setTextRangeStyle (nodeId, 0, actualLength, props)  ← style with REAL length
+```
+
+**Never guess character counts.** Unicode characters (→, ×, ·, —), emoji, and CJK characters may differ from what you expect. Always read first.
+
+### Font Names Must Be Exact
+
+Wrong: `"Inter Semi Bold"` → Right: `"Inter SemiBold"`
+
+Always use `list_fonts(query: "Inter")` to verify. The format is `"Family Style"` — e.g., `"DM Sans SemiBold"`, `"Space Mono Regular"`, `"Instrument Serif Italic"`.
+
+### Text Width Controls Line Wrapping
+
+| Width set? | Behavior |
+|-----------|----------|
+| No width | Auto-width, single line, may overflow slide |
+| Width set | Text wraps within the width box |
+
+For any text that might be multi-line, ALWAYS set `width` in createNode props.
+
+### Text Alignment
+
+Text alignment is a **node property**, not a range style:
+
+```
+set_properties(nodeId, { textAlignHorizontal: "CENTER" })  // LEFT, CENTER, RIGHT
+```
+
+This is separate from `setTextRangeStyle` which handles fontSize, fills, fontName, letterSpacing, lineHeight.
+
+### Efficient Multi-Style Text
+
+For text with mixed styles (e.g., "Design **Principles**" where one word is accent):
+
+1. Set the full text with one `setText` call
+2. `getTextContent` → read actual length
+3. Calculate substring positions from the actual text
+4. Apply `setTextRangeStyle` to each range
+
+Common pattern — title with accent word:
+```
+"The Void in Physical UX"
+ ^^^^                       0-4   → white
+     ^^^^                   4-8   → accent orange
+         ^^^^^^^^^^^^^^^    8-23  → white
+```
+
+
+## VI. D3 Mastery — The Graphics Powerhouse
+
+D3 is your primary renderer for anything beyond simple shapes. In this context, D3 is not about interactive web viz — it's a **precise SVG layout engine** that produces editable Figma nodes.
+
+### How It Works
 
 ```js
-// Example: build SVG with d3, auto-extracted from scratch
-var svg = d3.select(scratch).append('svg').attr('width', 800).attr('height', 400);
-svg.append('rect').attr('width', 800).attr('height', 400).attr('fill', '#111');
-// ... d3 bindings, scales, axes ...
+// Your script runs in a plugin iframe with:
+// - d3 (full D3 v7)
+// - scratch (offscreen div to render into)
+
+var svg = d3.select(scratch).append('svg')
+  .attr('width', 800).attr('height', 400);
+
+// Build your SVG with d3...
+// The SVG is auto-extracted and converted to editable Figma nodes
+// Text elements become REAL Figma text nodes (editable!)
 ```
 
-### render_rough — hand-drawn / sketchy style
+### Core Patterns
 
-Use for: informal diagrams, whiteboard-style visuals, creative presentations.
-
-- Rough.js available via `rough`
-- Fill styles: hachure, cross-hatch, zigzag, dots, solid
-- Create SVG element manually, use `rough.svg(svgEl)` to draw
-- Text as editable nodes
-
-### render_satori — HTML/CSS layouts
-
-Use ONLY when flexbox/CSS layout is essential and hard to express in SVG. Last resort.
-
-**Limitations:**
-- **Text becomes vector PATHS — not editable in Figma.** Users cannot change text after rendering.
-- No CSS gradients (use solid colors)
-- No rgba() colors (use hex)
-- Must fetch a font file first (adds ~1s latency)
-- Uses JSX-object syntax, not HTML strings: `{ type: 'div', props: { style: {...}, children: [...] } }`
-
+**Pattern 1: Data Table**
 ```js
-// Must fetch font first
-var fontUrl = 'https://cdn.jsdelivr.net/fontsource/fonts/inter@latest/latin-400-normal.woff';
-return fetch(fontUrl).then(r => r.arrayBuffer()).then(fontData => {
-  return satori(element, { width: 1920, height: 1080, fonts: [{ name: 'Inter', data: fontData, weight: 400, style: 'normal' }] });
+var data = [
+  {col1: 'Input', col2: 'Keyboard', col3: 'No keyboard'},
+  {col1: 'Duration', col2: 'Long sessions', col3: 'Seconds only'}
+];
+var headers = ['DIMENSION', 'CURRENT', 'PHYSICAL'];
+var colX = [0, 250, 530]; // column positions
+var rowH = 50;
+
+// Headers
+headers.forEach(function(h, i) {
+  svg.append('text').attr('x', colX[i] + 20).attr('y', 30)
+    .attr('fill', '#666').attr('font-size', 11)
+    .attr('font-family', 'Space Mono').text(h);
+});
+
+// Rows
+data.forEach(function(d, i) {
+  var y = 50 + i * rowH;
+  svg.append('text').attr('x', colX[0] + 20).attr('y', y + 30)
+    .attr('fill', '#999').attr('font-size', 15).attr('font-family', 'DM Sans').text(d.col1);
+  svg.append('text').attr('x', colX[1] + 20).attr('y', y + 30)
+    .attr('fill', '#666').attr('font-size', 15).text(d.col2);
+  svg.append('text').attr('x', colX[2] + 20).attr('y', y + 30)
+    .attr('fill', '#ff4d00').attr('font-size', 15).text(d.col3);
+  // Row divider
+  svg.append('line').attr('x1', 0).attr('y1', y + rowH)
+    .attr('x2', 800).attr('y2', y + rowH)
+    .attr('stroke', 'rgba(255,255,255,0.06)');
 });
 ```
 
-### create_svg — inline SVG strings
+**Pattern 2: Flow Diagram**
+```js
+var nodes = ['Context', 'Reasoning', 'Decision', 'Output'];
+var nodeW = 180, nodeH = 50, gap = 60;
 
-Use for: simple graphics, icons, logos where you can write SVG directly.
-
-- Agent generates SVG string
-- No iframe execution needed
-- Full SVG spec support except foreignObject (stripped by Figma)
-
-### Summary
-
-| Renderer | Text editable? | Best for | Latency |
-|----------|---------------|----------|---------|
-| **render_d3** | Yes | Charts, data viz, diagrams | Fast |
-| **render_rough** | Yes | Sketchy/hand-drawn | Fast |
-| **render_satori** | **No (paths)** | CSS layouts, UI cards | Slow (font fetch) |
-| **create_svg** | Depends | Icons, simple graphics | Instant |
-| **create_node** | Yes (setText) | Basic shapes + text | Instant |
-
-**Default to render_d3.** Only use render_satori when you genuinely need flexbox layout that D3 can't express.
-
-## Batch Operations
-
-### Keep batches small (8-12 commands max)
-
-Large batches (20+) risk timeout (30s limit). The bottleneck is async operations (setText with font loading), not raw command count. 20 pure shape commands work fine; 20 setText commands may timeout.
-
-Split into logical groups:
-
-```
-Batch 1: Create card background + label + title (5 commands)
-→ Screenshot → Verify
-
-Batch 2: Add details + deliverables (6 commands)
-→ Screenshot → Verify
+nodes.forEach(function(label, i) {
+  var x = i * (nodeW + gap);
+  svg.append('rect').attr('x', x).attr('y', 20)
+    .attr('width', nodeW).attr('height', nodeH)
+    .attr('fill', 'rgba(255,255,255,0.03)')
+    .attr('stroke', 'rgba(255,255,255,0.1)');
+  svg.append('text').attr('x', x + nodeW/2).attr('y', 50)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#fafafa').attr('font-size', 15).text(label);
+  // Arrow between nodes
+  if (i < nodes.length - 1) {
+    svg.append('text').attr('x', x + nodeW + gap/2).attr('y', 50)
+      .attr('text-anchor', 'middle')
+      .attr('fill', '#666').attr('font-size', 18).text('\u2192');
+  }
+});
 ```
 
-### The $N reference pattern
+**Pattern 3: Comparison Columns**
+```js
+var colW = 400, gap = 30;
+// Left column (dim)
+svg.append('rect').attr('x', 0).attr('y', 0)
+  .attr('width', colW).attr('height', 300)
+  .attr('fill', 'rgba(255,255,255,0.02)')
+  .attr('stroke', 'rgba(255,255,255,0.05)');
 
-Use `$0.nodeId`, `$1.nodeId` etc. to chain commands within a batch. But if `$0` fails, everything referencing it also fails silently.
-
-**Safe pattern:** Create the slide in a separate call, get its ID, then use the literal ID in subsequent batches.
-
-```
-# Step 1: Create slide (separate call)
-create_slide → returns { nodeId: "4:14" }
-
-# Step 2: Add content (batch with literal ID)
-batch_operations: [
-  { cmd: "createNode", params: { parentId: "4:14", ... } },
-  { cmd: "setText", params: { nodeId: "$0.nodeId", ... } },
-  { cmd: "setTextRangeStyle", params: { nodeId: "$0.nodeId", ... } }
-]
-```
-
-## Text Handling
-
-### Font names must be exact
-
-Wrong: `"Inter Semi Bold"` — Right: `"Inter SemiBold"`
-
-Use `list_fonts(query: "Inter")` to check exact names. Common format: `"Family Style"` e.g. `"Inter Bold"`, `"Roboto Regular"`.
-
-### setText then setTextRangeStyle (two-step)
-
-1. `createNode` with type TEXT — creates empty text node at default 12px
-2. `setText` — sets characters and font (auto-loads font)
-3. `setTextRangeStyle` — sets fontSize, fills, etc.
-
-**Critical:** The `end` index in `setTextRangeStyle` must equal the actual character count. **Always call `getTextContent` first** to get the real length. Off-by-one causes hard errors. Chinese characters may have different lengths than expected.
-
-### Text width matters
-
-Unset width = auto-width text (single line, may overflow slide). For multi-line text, set `width` in the createNode props:
-
-```
-{ type: "TEXT", props: { x: 85, y: 450, width: 470 } }
+// Right column (highlighted)
+svg.append('rect').attr('x', colW + gap).attr('y', 0)
+  .attr('width', colW).attr('height', 300)
+  .attr('fill', 'rgba(255,77,0,0.04)')
+  .attr('stroke', 'rgba(255,77,0,0.25)');
+// Top accent bar
+svg.append('rect').attr('x', colW + gap).attr('y', 0)
+  .attr('width', colW).attr('height', 2)
+  .attr('fill', '#ff4d00');
 ```
 
-## Visual Design Patterns
+**Pattern 4: Bar Chart**
+```js
+var data = [{label: 'Q1', value: 45}, {label: 'Q2', value: 72}, {label: 'Q3', value: 58}];
+var barW = 60, gap = 30, maxH = 200;
+var maxVal = d3.max(data, function(d) { return d.value; });
 
-### Don't: flat text on black
+data.forEach(function(d, i) {
+  var x = 50 + i * (barW + gap);
+  var h = (d.value / maxVal) * maxH;
+  svg.append('rect').attr('x', x).attr('y', 250 - h)
+    .attr('width', barW).attr('height', h)
+    .attr('fill', '#ff4d00').attr('rx', 2);
+  svg.append('text').attr('x', x + barW/2).attr('y', 275)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#666').attr('font-size', 12).text(d.label);
+  svg.append('text').attr('x', x + barW/2).attr('y', 245 - h)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#ff4d00').attr('font-size', 14).text(d.value);
+});
+```
 
-All-white text on black backgrounds with no structure looks like a markdown render, not a designed slide.
+**Pattern 5: Gantt / Timeline**
+```js
+var rows = [
+  {label: 'Build', cells: [{text: 'Design', type: 'milestone'}, {text: 'Build', type: 'active'}, {text: 'Deploy', type: 'active'}, null, null, null]},
+  {label: 'Academic', cells: [{text: 'Research', type: 'active'}, {text: 'Collect', type: 'active'}, {text: 'arXiv', type: 'milestone'}, {text: 'Submit', type: 'active'}, {text: 'Review', type: 'active'}, {text: 'Conf', type: 'milestone'}]}
+];
+var cellW = 120, cellH = 40, labelW = 130, rowH = 50;
 
-### Do: structured panels with accent colors
+rows.forEach(function(row, ri) {
+  var y = ri * rowH;
+  svg.append('text').attr('x', labelW - 10).attr('y', y + 28)
+    .attr('text-anchor', 'end').attr('fill', '#ff4d00')
+    .attr('font-size', 13).text(row.label);
+  row.cells.forEach(function(cell, ci) {
+    if (!cell) return;
+    var x = labelW + ci * (cellW + 3);
+    var fill = cell.type === 'milestone' ? '#ff4d00' : 'rgba(255,77,0,0.2)';
+    var textFill = cell.type === 'milestone' ? '#fff' : '#999';
+    svg.append('rect').attr('x', x).attr('y', y + 5)
+      .attr('width', cellW).attr('height', cellH - 5).attr('fill', fill);
+    svg.append('text').attr('x', x + cellW/2).attr('y', y + 30)
+      .attr('text-anchor', 'middle').attr('fill', textFill)
+      .attr('font-size', 11).text(cell.text);
+  });
+});
+```
 
-**Dark cards:** Use `RECTANGLE` with `fills: "#0a0a0a"`, `cornerRadius: 8`, `strokes: "#222222"`, `strokeWeight: 1` to create panel regions.
+**Pattern 6: Donut Chart**
+```js
+var data = [{label: 'Academic', value: 35}, {label: 'Marketing', value: 40}, {label: 'Industry', value: 25}];
+var colors = ['#ff4d00', '#ff6b2b', '#cc3d00'];
+var pie = d3.pie().value(function(d) { return d.value; }).sort(null);
+var arc = d3.arc().innerRadius(60).outerRadius(100);
+var g = svg.append('g').attr('transform', 'translate(200,150)');
 
-**Accent color:** Pick one accent for labels, numbers, subtitles. Use it sparingly — only on category markers and secondary text.
+pie(data).forEach(function(d, i) {
+  g.append('path').attr('d', arc(d)).attr('fill', colors[i]);
+  // Label
+  var pos = arc.centroid(d);
+  g.append('text').attr('x', pos[0] * 1.8).attr('y', pos[1] * 1.8)
+    .attr('text-anchor', 'middle').attr('fill', '#fafafa')
+    .attr('font-size', 12).text(data[i].label);
+});
+```
 
-**Color hierarchy (dark theme example):**
-| Role | Color |
-|------|-------|
-| Primary heading | `#ffffff` |
-| Accent / label | one accent color |
-| Secondary text | `#888888` |
-| Body / description | `#555555` |
-| Muted / fine print | `#333333` |
-| Card border | `#222222` |
-| Card fill | `#0a0a0a` or `#111111` |
-| Slide background | `#000000` |
+### D3 Tips
 
-### Element ordering matters
+- **Always set width/height** on the SVG element explicitly
+- **Use `d3.select(scratch)`** — don't create a detached SVG
+- **Font families in D3** must match Figma font names for editable text
+- **Avoid D3 transitions, events, interactivity** — meaningless in static Figma
+- **Keep scripts simple** — forEach loops over data arrays, not complex D3 patterns
+- **rgba() works in SVG** attributes unlike Figma SOLID fills
+- **Test with small data** first, then expand once the layout works
 
-Figma renders in child order (later = on top). Create background rectangles BEFORE text that sits on them.
 
-## API Limitations (Figma Slides)
+## VII. Slide Design Theory
+
+### The Thought Process for Every Slide
+
+Before touching any tool, answer these questions:
+
+1. **What is the ONE takeaway?** If the audience remembers one thing from this slide, what is it?
+2. **What is the visual metaphor?** Comparison → two columns. Process → flow. Hierarchy → stack. Distribution → chart. Timeline → horizontal bars.
+3. **Where does the eye go first?** The largest/brightest element wins attention. Make sure it's the right one.
+4. **What can be removed?** If removing an element doesn't hurt comprehension, remove it.
+
+### Visualization Chooser
+
+| You have... | Use this | Not this |
+|------------|----------|----------|
+| Two things to compare | Side-by-side panels | Paragraph describing differences |
+| A process / sequence | Flow diagram with arrows | Numbered list |
+| Parts of a whole | Donut chart or stacked bar | Table of percentages |
+| Change over time | Line chart or Gantt | Text describing timeline |
+| Categories / taxonomy | Card grid or tag pills | Bullet list |
+| Hierarchy / layers | Stack diagram | Indented list |
+| Relationships | Radial diagram or network | Text describing connections |
+| A key metric | Giant number + small label | Sentence with number embedded |
+| Pros vs cons | Check/X comparison columns | Two bullet lists |
+
+### Layout Archetypes
+
+**1. Hero Statement** — One big quote or number, centered, lots of whitespace
+```
+[                                    ]
+[         SECTION LABEL              ]
+[    Big Bold Statement              ]
+[                                    ]
+[      "Supporting quote in italic"  ]
+[                                    ]
+```
+
+**2. Left Text + Right Graphic** — Explain on left, visualize on right
+```
+[ LABEL                              ]
+[ Title with Accent                  ]
+[                                    ]
+[ Body text on the    | [D3 chart]   ]
+[ left side with      | [or card ]   ]
+[ supporting detail   | [panel   ]   ]
+```
+
+**3. Grid of Cards** — 2x2, 3x1, or 4x1 cards with icons
+```
+[ LABEL                              ]
+[ Title                              ]
+[                                    ]
+[ [icon] Card 1  | [icon] Card 2     ]
+[ description    | description       ]
+[                                    ]
+[ [icon] Card 3  | [icon] Card 4     ]
+[ description    | description       ]
+```
+
+**4. Full-Width Visualization** — Chart/diagram takes the stage
+```
+[ LABEL                              ]
+[ Title                              ]
+[                                    ]
+[ [====== Full-width D3 chart =====] ]
+[                                    ]
+[ Footer note                        ]
+```
+
+**5. Centered Comparison** — Two panels, centered with visual weight
+```
+[           LABEL                    ]
+[      Title with Accent             ]
+[                                    ]
+[  [ Dim panel  ] [ Bright panel ]   ]
+[  [ x items    ] [ ✓ items      ]   ]
+[                                    ]
+[    Bottom pull quote               ]
+```
+
+### Color Systems
+
+**Dark theme (most common for tech/research):**
+
+| Role | Color | Usage |
+|------|-------|-------|
+| Slide background | `#0a0a0a` or `#000000` | Always |
+| Card fill | `#0a0a0a` / `#111111` | Panels, cards |
+| Card border | `rgba(255,255,255,0.08)` or `#222222` | Subtle structure |
+| Primary text | `#fafafa` / `#ffffff` | Headings, key text |
+| Secondary text | `#999999` | Body, descriptions |
+| Muted text | `#666666` | Captions, metadata |
+| Dimmed text | `#333333` | Fine print, decorative |
+| Accent | One color (e.g., `#ff4d00`) | Labels, highlights, data viz |
+| Accent dim | `rgba(accent, 0.12)` | Card backgrounds, glows |
+| Success | `#00c853` | Checkmarks, positive |
+| Info blue | `#4285f4` | Secondary category |
+
+**Accent highlight card:**
+```
+fills: [{ type: "SOLID", color: {r: 1, g: 0.3, b: 0}, opacity: 0.05 }]
+strokes: [{ type: "SOLID", color: {r: 1, g: 0.3, b: 0}, opacity: 0.2 }]
+strokeWeight: 1
+```
+
+**Subtle background card:**
+```
+fills: [{ type: "SOLID", color: {r: 1, g: 1, b: 1}, opacity: 0.02 }]
+strokes: [{ type: "SOLID", color: {r: 1, g: 1, b: 1}, opacity: 0.08 }]
+strokeWeight: 1
+```
+
+
+## VIII. API Gotchas — Hard-Won Lessons
+
+These will save you hours of debugging:
+
+### Gradient Fills Require gradientTransform
+
+```js
+// WRONG — will error
+fills: [{ type: "GRADIENT_RADIAL", gradientStops: [...] }]
+
+// RIGHT — must include gradientTransform
+fills: [{
+  type: "GRADIENT_RADIAL",
+  gradientStops: [
+    { position: 0, color: { r: 1, g: 0.3, b: 0, a: 0.06 } },
+    { position: 1, color: { r: 1, g: 0.3, b: 0, a: 0 } }
+  ],
+  gradientTransform: [[0.7, 0, 0.5], [0, 0.7, -0.1]]
+}]
+```
+
+The `gradientTransform` is a 2x3 affine matrix `[[a, b, tx], [c, d, ty]]` controlling the gradient's position and scale.
+
+### SOLID Fill Colors Have No Alpha
+
+```js
+// WRONG — unrecognized key 'a'
+fills: [{ type: "SOLID", color: { r: 1, g: 0.3, b: 0, a: 0.5 } }]
+
+// RIGHT — alpha is on the fill object as opacity
+fills: [{ type: "SOLID", color: { r: 1, g: 0.3, b: 0 }, opacity: 0.05 }]
+```
+
+For strokes it's the same pattern — opacity is on the stroke entry, not in the color.
+
+### Shorthand fills Works for Simple Colors
+
+```js
+fills: "#ff4d00"  // Works! Shorthand for solid color
+```
+
+But for gradients, opacity control, or multiple fills, use the array format.
+
+### Element Z-Order = Creation Order
+
+Figma renders children in order — **later = on top**. Create background rectangles BEFORE the text that sits on them.
+
+### Batch Operations — 8-12 Commands Max
+
+The 30s timeout is the limit. Text operations (`setText` with font loading) are expensive. Pure shape commands are cheap.
+
+```
+Safe:   20 createNode (rectangles only)
+Risky:  12 setText calls with different fonts
+Limit:  8-10 mixed operations with setText + setTextRangeStyle
+```
+
+### The $N Reference Pattern
+
+Use `$0.nodeId`, `$1.nodeId` to reference results within a batch. But if command $0 fails, everything referencing it fails silently.
+
+**Safe pattern:** Create slides in separate calls, get the literal ID, then use it in batches.
+
+### Slides API Limitations
 
 | Feature | Status |
 |---------|--------|
 | createSlide, createSlideRow | Works |
-| createRectangle, createEllipse, createLine, createText | Works |
-| createNodeFromSvg | Works — the graphics powerhouse |
+| createNode (RECT, ELLIPSE, LINE, TEXT, etc.) | Works |
+| create_svg (SVG import) | Works — graphics powerhouse |
+| render_d3, render_rough | Works — text becomes editable |
+| render_satori | Works — but text becomes paths (non-editable) |
+| place_image (URL or bytes) | Works |
 | createTable, createShapeWithText | **Unavailable** in Slides editor |
 | createVideoAsync | **Broken** — returns empty `{}` |
-| createComponent, createPage | **Unavailable** in Slides editor |
-| list_fonts (no query) | Returns 2000+ families → **always use query param** |
-| foreignObject in SVG | **Stripped** by Figma's SVG parser |
+| list_fonts (no query) | Returns 2000+ → **always use query param** |
+| foreignObject in SVG | **Stripped** by Figma parser |
 
-## Common Mistakes
+### Working Smart — Duplicate and Modify
 
-| Mistake | Fix |
-|---------|-----|
-| Batch too large → timeout | Keep under 12 commands, split text-heavy batches |
-| Text overlapping | Screenshot after each text group, verify Y positions |
-| setTextRangeStyle wrong end | **Always** getTextContent first for actual length |
-| Font not found error | Use list_fonts(query) to check exact name |
-| Elements behind cards | Create rectangles before text in batch order |
-| Text clipped at edge | Set width prop on text nodes |
-| No visual hierarchy | Use cards, accent colors, varied font sizes |
-| Satori text not editable | Expected — use render_d3 instead when text editing matters |
-| list_fonts overflow | Always pass query param to filter |
-| Slide background not set | set_properties on slide node with fills |
+For slides with similar layouts:
+- `duplicate_slide(slideId)` → creates an exact copy
+- `clear_slide(slideId)` → keeps the slide, removes all content
+- `clone_node(nodeId, parentId)` → copy an element to another slide
 
-## Quick Reference: Common Commands
+This is far faster than rebuilding from scratch.
 
-| Task | Command | Key params |
-|------|---------|------------|
-| Start session | `start_session` | Starts WS server, returns status |
-| Check connection | `connection_status` | Read-only, no auto-start |
-| New slide | `create_slide` | `fills: "#000000"` |
-| Check layout | `screenshot_slide` | `slideId, scale: 2` for detail |
-| Read style | `get_slide_context` | `slideId` of reference slide |
-| Add shape | `create_node` | `type, parentId, props` |
-| Set text | `set_text` | `nodeId, text, fontName` |
-| Style range | `set_text_range_style` | `nodeId, start, end, props` |
-| Dark card | `create_node` | `type: RECTANGLE` with fills/strokes/cornerRadius |
-| Divider line | `create_node` | `type: LINE` then set strokes/opacity |
-| Place image | `place_image` | `parentId, url, x, y, width, height` |
-| D3 chart | `render_d3` | `parentId, script, x, y, width, height` |
-| Rough sketch | `render_rough` | `parentId, script, x, y, width, height` |
-| CSS layout | `render_satori` | `parentId, script, x, y, width, height` |
-| SVG import | `create_svg` | `parentId, svg, x, y, width, height` |
-| Multi-command | `batch_operations` | `commands[]` with `$N.field` refs |
-| Wipe slide | `clear_slide` | `slideId` |
-| Check text | `get_text_content` | `nodeId` → read segments for length |
+
+## IX. Quick Reference
+
+| Task | Tool | Key Params |
+|------|------|------------|
+| Start session | `start_session` | — |
+| Check connection | `connection_status` | — |
+| See deck structure | `get_slide_grid` | — |
+| New slide | `create_slide` | `fills: "#0a0a0a"` |
+| Screenshot | `screenshot_slide` | `slideId, scale: 1` |
+| Read existing slide | `get_slide_context` | `slideId` |
+| Copy a slide | `duplicate_slide` | `slideId` |
+| Wipe slide content | `clear_slide` | `slideId` |
+| Add any shape/text | `create_node` | `type, parentId, props` |
+| Modify any property | `set_properties` | `nodeId, props` |
+| Set text content | `set_text` | `nodeId, text, fontName` |
+| Read text length | `get_text_content` | `nodeId` |
+| Style text range | `set_text_range_style` | `nodeId, start, end, props` |
+| Place image from URL | `place_image` | `parentId, url, x, y, w, h` |
+| D3 visualization | `render_d3` | `parentId, script, x, y, w, h` |
+| Rough.js sketch | `render_rough` | `parentId, script, x, y, w, h` |
+| Satori CSS layout | `render_satori` | `parentId, script, x, y, w, h` |
+| Import SVG string | `create_svg` | `parentId, svg, x, y, w, h` |
+| Multi-command batch | `batch_operations` | `commands[]` with `$N.field` refs |
 | Search fonts | `list_fonts` | `query: "Inter"` |
+| Clone element | `clone_node` | `nodeId, parentId` |
+| Group elements | `group_nodes` | `nodeIds[], parentId` |
+| Find nodes | `find_nodes` | `criteria: { name, type }` |
+| Export as PNG/SVG | `export_node` | `nodeId, format, scale` |
+| All slide thumbnails | `screenshot_all_slides` | `scale: 0.5` |

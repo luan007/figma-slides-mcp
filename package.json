@@ -1,13 +1,41 @@
 {
-  "name": "figma-slide-mcp",
+  "name": "figma-slides-mcp",
   "version": "0.1.0",
-  "description": "MCP server for AI agent control of Figma Slides",
+  "description": "Figma Slides MCP — create and edit presentations with built-in D3, Rough.js, and Satori renderers for charts, diagrams, and custom graphics.",
   "type": "module",
   "main": "server/index.js",
+  "bin": {
+    "figma-slides-mcp": "server/index.js"
+  },
+  "files": [
+    "server/",
+    "plugin/",
+    "skills/",
+    ".claude-plugin/",
+    ".mcp.json",
+    "LICENSE",
+    "README.md",
+    "AGENT-INSTALL.md"
+  ],
   "scripts": {
     "start": "node server/index.js",
     "test": "node --test test/*.test.js"
   },
+  "keywords": [
+    "figma",
+    "slides",
+    "mcp",
+    "model-context-protocol",
+    "d3",
+    "presentation",
+    "ai"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luan007/figma-slides-mcp.git"
+  },
+  "homepage": "https://github.com/luan007/figma-slides-mcp",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",
     "ws": "^8.18.0",

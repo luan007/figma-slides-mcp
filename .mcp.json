@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "figma-slides": {
+      "command": "npx",
+      "args": ["-y", "figma-slides-mcp"]
+    }
+  }
+}

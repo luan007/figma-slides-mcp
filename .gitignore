@@ -1,1 +1,25 @@
+# Dependencies
 node_modules/
+.claude
+# Environment
+.env
+.env.*
+
+# Claude Code local settings (not the plugin .mcp.json)
+.claude/
+
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Dev planning docs
+docs/superpowers/
