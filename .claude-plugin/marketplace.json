@@ -9,9 +9,9 @@
   "plugins": [
     {
       "name": "figma-slides-mcp",
-      "source": ".",
+      "source": "./",
       "description": "Figma Slides MCP — create and edit presentations with built-in D3, Rough.js, and Satori renderers for charts, diagrams, and custom graphics.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "Mike Luan"
       },
