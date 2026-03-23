@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { readFileSync } from 'fs';
 import { Bridge } from './bridge.js';
 import { registerTools } from './tools.js';
 
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)));
 const PORT = parseInt(process.env.FIGMA_WS_PORT || '3055', 10);
 
 const server = new McpServer({
-  name: 'figma-slide-mcp',
-  version: '0.1.0'
+  name: pkg.name,
+  version: pkg.version
 });
 
 // Bridge is lazy — WebSocket server only starts when first tool is called
